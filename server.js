@@ -81,7 +81,10 @@ function saveSession(req) {
 
 const SETTING_DEFAULTS = {
   default_time: '09:00',
-  default_time_model: 'fixed',
+  // Floating is the everyday default: a reminder at 6pm stays at 6pm when
+  // the device travels. Existing reminders keep their stored model.
+  default_time_model: 'floating',
+  default_time_zone: '',
   device_zone: '',
   device_zone_updated_at: '',
   repush_enabled: '0',
@@ -117,6 +120,9 @@ function validateSetting(key, value) {
       return null;
     case 'default_time_model':
       if (!TIME_MODELS.includes(value)) return 'Must be fixed, floating, or anchored';
+      return null;
+    case 'default_time_zone':
+      if (value !== '' && !recurrence.isValidTimeZone(value)) return 'Unknown timezone';
       return null;
     case 'device_zone':
       if (value !== '' && !recurrence.isValidTimeZone(value)) {

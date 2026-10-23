@@ -736,10 +736,21 @@ body.list-dragging .list-grip { cursor: grabbing; }
 
 .reminder-notes {
   font-size: 0.75rem;
+  line-height: 1.4;
   color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.reminder-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 3px;
 }
 
 .link-chip {
@@ -770,6 +781,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
 
 .row-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
 }
@@ -1835,8 +1847,8 @@ body.sheet-open .sidebar {
     margin: 0 3px;
   }
 
-  /* The cross is a desktop affordance; on mobile just the label. */
-  .swipe-act.del { gap: 0; padding: 0 20px; }
+  /* The cross is a desktop affordance; on mobile just the centered label. */
+  .swipe-act.del { gap: 0; padding: 0; justify-content: center; }
   .swipe-act.del .ic { display: none; }
 
   .main-search {

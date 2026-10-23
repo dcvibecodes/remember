@@ -434,11 +434,17 @@
               <option value="anchored">Anchored</option>
             </select>
           </label>
+          <label class="settings-row" for="set-default-zone">
+            <span>Default time zone</span>
+            <select id="set-default-zone">
+              <option value="">Device time zone</option>
+            </select>
+          </label>
           <label class="settings-row" for="set-default-time">
             <span>Date-only time</span>
             <input id="set-default-time" type="time">
           </label>
-          <p class="notify-hint">Dateless “date-only” reminders fire at this time of day.</p>
+          <p class="notify-hint">Floating follows this device; Fixed keeps an absolute instant; Anchored pins a zone. Defaults apply to <strong>new</strong> reminders — existing reminders keep their own model and zone. Floating reminders move when the device zone syncs.</p>
         </div>
         <div class="settings-group">
           <h3>Notifications</h3>

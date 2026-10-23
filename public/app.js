@@ -1072,17 +1072,27 @@ function renderHome(content) {
   content.append(grid);
 }
 
-const URL_PATTERN = /https?:\/\/[^\s]+/gi;
+// Full URLs plus bare domains ("example.com", "www.example.com/path") so
+// notes don't require a scheme to become chips. Only the first matching
+// alternative consumes a scheme-prefixed URL, avoiding double matches.
+const URL_PATTERN = /(?:https?:\/\/|www\.)[^\s<>"']+|\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\s<>"']*)?/gi;
 
 function cleanUrl(value) {
-  return value.replace(/[),.;!?]+$/, '');
+  return String(value).replace(/^[\s(<\[]+|[),.;!?:\]>]+$/g, '');
+}
+
+function toHref(value) {
+  const url = cleanUrl(value);
+  if (/^https?:\/\//i.test(url)) return url;
+  if (/^\/\//.test(url)) return 'https:' + url;
+  return 'https://' + url.replace(/^www\./i, 'www.');
 }
 
 function domainOf(url) {
   try {
-    return new URL(url).hostname.replace(/^www\./, '');
+    return new URL(toHref(url)).hostname.replace(/^www\./, '');
   } catch {
-    return url.replace(/^https?:\/\//, '').split('/')[0];
+    return cleanUrl(url).replace(/^https?:\/\//i, '').split('/')[0];
   }
 }
 
@@ -1090,55 +1100,66 @@ function linkChip(url) {
   // Compact chip (icon + domain) instead of a full magenta URL: the full
   // address stays in the notes field. No third-party favicon service — the
   // link glyph is inline SVG so domains never leak to Google.
+  const href = toHref(url);
   return el('a', {
     class: 'link-chip',
-    href: url,
+    href,
     target: '_blank',
     rel: 'noopener noreferrer',
-    title: url,
-    'aria-label': `Open link: ${domainOf(url)}`,
+    title: href,
+    'aria-label': `Open link: ${domainOf(href)}`,
     onclick: (event) => event.stopPropagation(),
   }, [
     el('span', { html: '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a5 5 0 007.07 0l3.54-3.54a5 5 0 00-7.07-7.07L12 5M14 10a5 5 0 00-7.07 0L3.39 13.54a5 5 0 007.07 7.07L12 19" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></svg>' }),
-    el('span', { class: 'link-domain', text: domainOf(url) }),
+    el('span', { class: 'link-domain', text: domainOf(href) }),
   ]);
 }
 
-// First line of notes with URLs replaced by compact chips.
-function appendNotePreview(parent, value) {
-  const text = String(value);
+// Split notes into prose and links. Punctuation that merely joined a link
+// (commas/semicolons around it) is removed from the prose, so the card never
+// shows stray commas between chips.
+function noteParts(value) {
+  const text = String(value || '');
+  const segments = [];
   let last = 0;
   for (const match of text.matchAll(URL_PATTERN)) {
     const raw = match[0];
     const url = cleanUrl(raw);
-    const trailing = raw.slice(url.length);
-    if (match.index > last) parent.append(document.createTextNode(text.slice(last, match.index)));
-    if (url) parent.append(linkChip(url));
-    if (trailing) parent.append(document.createTextNode(trailing));
+    if (!url) continue;
+    if (match.index > last) segments.push({ type: 'text', value: text.slice(last, match.index) });
+    segments.push({ type: 'link', value: url });
     last = match.index + raw.length;
   }
-  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
-}
-
-function appendLinkedText(parent, value) {
-  appendNotePreview(parent, value);
+  if (last < text.length) segments.push({ type: 'text', value: text.slice(last) });
+  const prose = [];
+  const links = [];
+  segments.forEach((segment, index) => {
+    if (segment.type === 'link') {
+      const href = toHref(segment.value);
+      if (!links.includes(href)) links.push(href);
+      return;
+    }
+    let value = segment.value;
+    const previous = segments[index - 1];
+    const next = segments[index + 1];
+    if (previous && previous.type === 'link') value = value.replace(/^[\s,;:!?.]+/, '');
+    if (next && next.type === 'link') value = value.replace(/[\s,;:!?.]+$/, '');
+    value = value.replace(/\s+/g, ' ').trim();
+    if (value) prose.push(value);
+  });
+  return { text: prose.join(' ').replace(/\s{2,}/g, ' ').trim(), links };
 }
 
 function renderEditorLinks() {
   const wrap = $('#e-notes-links');
   if (!wrap) return;
-  const urls = [...$('#e-notes').value.matchAll(URL_PATTERN)]
-    .map((match) => cleanUrl(match[0]))
-    .filter(Boolean);
-  const unique = [...new Set(urls)];
+  const { links } = noteParts($('#e-notes').value);
   wrap.replaceChildren();
-  if (!unique.length) {
+  if (!links.length) {
     wrap.hidden = true;
     return;
   }
-  for (const url of unique) {
-    wrap.append(linkChip(url));
-  }
+  for (const url of links) wrap.append(linkChip(url));
   wrap.hidden = false;
 }
 
@@ -1155,10 +1176,10 @@ function autoGrowNotes() {
 }
 
 function timeModelLabel(reminder) {
-  if (reminder.time_model === 'floating') {
-    const zone = (state.settings && state.settings.device_zone) || reminder.time_zone;
-    return zone ? `Floating · ${zone}` : 'Floating';
-  }
+  // Floating already means "this device's time"; showing a specific zone
+  // there is noise (the editor discloses the last synced zone). Anchored is
+  // different: its zone IS the rule, so keep it on the card.
+  if (reminder.time_model === 'floating') return 'Floating';
   if (reminder.time_model === 'anchored') {
     return reminder.time_zone ? `Anchored · ${reminder.time_zone}` : 'Anchored';
   }
@@ -1174,6 +1195,18 @@ async function snoozeRow(reminder, hours = 1) {
     await loadState();
     render();
     toast(`Snoozed until ${new Date(result.snoozedUntil).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function skipToNext(reminder) {
+  try {
+    const result = await api('/api/reminders/' + reminder.id + '/skip', { method: 'POST' });
+    await loadState();
+    render();
+    const next = new Date(result.nextDue);
+    toast(`Next: ${next.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`);
   } catch (err) {
     toast(err.message);
   }
@@ -1245,44 +1278,62 @@ function reminderRow(reminder, options = {}) {
     meta,
   ]);
   if (reminder.notes) {
-    const notes = el('div', { class: 'reminder-notes' });
-    appendNotePreview(notes, reminder.notes.split('\n')[0]);
-    body.append(notes);
+    const parts = noteParts(reminder.notes);
+    if (parts.text) {
+      body.append(el('div', { class: 'reminder-notes', text: parts.text }));
+    }
+    if (parts.links.length) {
+      const links = el('div', { class: 'reminder-links' });
+      for (const url of parts.links) links.append(linkChip(url));
+      body.append(links);
+    }
   }
 
   // Contextual actions live on the row so due items never require opening
-  // the editor: snooze on any due/overdue item, one-tap reschedule on
-  // overdue items in the smart views.
-  if (!reminder.completed && reminder.due_at && !isSnoozed(reminder) && due
-    && new Date(reminder.due_at) <= endOfToday()) {
-    body.append(el('div', { class: 'row-actions' }, [
-      el('button', {
+  // the editor. A recurring item due today can skip straight to its next
+  // occurrence — the "snooze until next recurrence" behaviour.
+  const actions = [];
+  const recurring = rule.type !== 'none';
+  const overdue = isOverdue(reminder);
+  const dueToday = Boolean(due) && new Date(reminder.due_at) <= endOfToday();
+  if (!reminder.completed && reminder.due_at && !isSnoozed(reminder) && dueToday) {
+    actions.push(el('button', {
+      type: 'button',
+      class: 'mini-btn',
+      text: 'Snooze 1h',
+      'aria-label': `Snooze ${reminder.title} for 1 hour`,
+      onclick: (event) => { event.stopPropagation(); snoozeRow(reminder, 1); },
+    }));
+    if (recurring) {
+      actions.push(el('button', {
         type: 'button',
         class: 'mini-btn',
-        text: 'Snooze 1h',
-        'aria-label': `Snooze ${reminder.title} for 1 hour`,
-        onclick: (event) => { event.stopPropagation(); snoozeRow(reminder, 1); },
-      }),
-    ]));
+        text: 'Next occurrence',
+        title: 'Skip this occurrence and move to the next one',
+        'aria-label': `Skip ${reminder.title} to the next occurrence`,
+        onclick: (event) => { event.stopPropagation(); skipToNext(reminder); },
+      }));
+    }
   }
-  if (!reminder.completed && options.reschedule && isOverdue(reminder)) {
-    body.append(el('div', { class: 'row-actions' }, [
-      el('button', {
-        type: 'button',
-        class: 'mini-btn',
-        text: 'Today',
-        'aria-label': `Move ${reminder.title} to today`,
-        onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'today'); },
-      }),
-      el('button', {
-        type: 'button',
-        class: 'mini-btn',
-        text: 'Tomorrow',
-        'aria-label': `Move ${reminder.title} to tomorrow`,
-        onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'tomorrow'); },
-      }),
-    ]));
+  if (!reminder.completed && options.reschedule && overdue) {
+    actions.push(el('button', {
+      type: 'button',
+      class: 'mini-btn',
+      text: 'Today',
+      'aria-label': `Move ${reminder.title} to today`,
+      onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'today'); },
+    }));
   }
+  if (!reminder.completed && reminder.due_at && dueToday && (!recurring || (options.reschedule && overdue))) {
+    actions.push(el('button', {
+      type: 'button',
+      class: 'mini-btn',
+      text: 'Tomorrow',
+      'aria-label': `Move ${reminder.title} to tomorrow`,
+      onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'tomorrow'); },
+    }));
+  }
+  if (actions.length) body.append(el('div', { class: 'row-actions' }, actions));
 
   const check = el('button', {
     class: 'check',
@@ -1469,6 +1520,19 @@ function syncRepeatRows() {
   $('#series-section').hidden = !editing || !recurring;
 }
 
+function renderSettingsZones(selected) {
+  const select = $('#set-default-zone');
+  if (!select) return;
+  select.replaceChildren();
+  select.append(el('option', { value: '', text: 'Device time zone' }));
+  const zones = [...new Set([deviceZone(), ...ZONES].filter(Boolean))];
+  for (const zone of zones) select.append(el('option', { value: zone, text: zone.replace(/_/g, ' ') }));
+  if (selected && !zones.includes(selected)) {
+    select.append(el('option', { value: selected, text: selected.replace(/_/g, ' ') }));
+  }
+  select.value = selected || '';
+}
+
 function buildZoneOptions(selected) {
   const select = $('#e-zone');
   select.replaceChildren();
@@ -1652,8 +1716,10 @@ function openEditor(id) {
   }
   $('#e-model').value = reminder
     ? (reminder.time_model || 'fixed')
-    : ((state.settings && state.settings.default_time_model) || 'fixed');
-  buildZoneOptions(reminder ? reminder.time_zone : deviceZone());
+    : ((state.settings && state.settings.default_time_model) || 'floating');
+  buildZoneOptions(reminder
+    ? reminder.time_zone
+    : ((state.settings && state.settings.default_time_zone) || deviceZone()));
   setScope('series');
   syncRepeatRows();
   syncModelRows();
@@ -2218,9 +2284,10 @@ $('#content').addEventListener('pointermove', (event) => {
   const dy = event.clientY - swipe.startY;
   if (!swipe.active) {
     if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy) * 1.2) return;
-    // Left swipe only. A rightward drag is ignored visually, but still
-    // counts as a gesture so the trailing click doesn't open the editor.
+    // A rightward drag closes a parked row (revealed Delete) and otherwise
+    // is ignored; either way it must not become a click on release.
     if (dx > 0) {
+      if (swipe.row.classList.contains('swipe-open')) resetSwipe(swipe.row);
       lastSwipeEnd = Date.now();
       swipe = null;
       return;
@@ -2312,7 +2379,8 @@ async function openSettings() {
   const s = state.settings;
   $('#set-density').value = localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable';
   $('#set-default-model').value = ['fixed', 'floating', 'anchored'].includes(s.default_time_model)
-    ? s.default_time_model : 'fixed';
+    ? s.default_time_model : 'floating';
+  renderSettingsZones(s.default_time_zone || '');
   $('#set-default-time').value = s.default_time || '09:00';
   $('#set-repush').checked = s.repush_enabled === '1';
   $('#set-repush-cadence').value = s.repush_cadence_min || '60';
@@ -2345,6 +2413,7 @@ async function saveAppSettings() {
       body: {
         settings: {
           default_time_model: $('#set-default-model').value,
+          default_time_zone: $('#set-default-zone').value,
           default_time: $('#set-default-time').value,
           repush_enabled: $('#set-repush').checked ? '1' : '0',
           repush_cadence_min: $('#set-repush-cadence').value,

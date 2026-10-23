@@ -7,18 +7,18 @@ Live: https://re.example.com
 ## Features
 
 - Lists with a 15-color palette (new lists auto-pick the first unused color, then rotate) and drag-to-reorder handles (pointer, touch, and keyboard).
-- Reminders with title, notes, date, optional time, and an urgent flag.
-- Recurring reminders (daily/weekly/monthly/yearly/custom) with per-occurrence completion history, skip, and this-occurrence-vs-series editing.
+- Reminders with title, notes, date, optional time, and an urgent flag. Notes render as a text row plus a separate row of compact link chips; bare domains like example.com work, and joining commas are not shown between chips.
+- Recurring reminders (daily/weekly/monthly/yearly/custom) with per-occurrence completion history, skip, a **Next occurrence** row action for due series, and this-occurrence-vs-series editing.
 - Natural-language quick add: "call mom tomorrow 6pm" pre-fills the editor with a removable preview.
 - Smart lists: Today (overdue pinned), Scheduled (grouped by date), All, Flagged (urgent), Completed.
-- Time models: fixed instant (default), floating wall-clock that follows the device time zone, or zone-anchored (with a styled Time zone picker in the editor).
-- Snooze (in-app button + notification actions where supported), opt-in re-push with quiet hours.
+- Time models: fixed instant, floating wall-clock (default; follows the device's last-synced zone), or zone-anchored (with a styled Time zone picker in the editor). Settings has a default model and default zone; changing them affects new reminders only, never existing ones.
+- Snooze (in-app button + notification actions where supported), **Next occurrence** for due repeating reminders, opt-in re-push with quiet hours.
 - Token API so external agents can list, add, and complete reminders without a browser.
 - Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
-- Deleting is inline (no browser dialogs): on touch, swipe any row left — including completed rows — to reveal the red Delete action, tap it once for “Confirm?”, tap again to delete. On the web there is no swipe; hover the row and click the ×, then “Confirm?”. The card slides away when deleted.
+- Deleting is inline (no browser dialogs): on touch, swipe any row left — including completed rows — to reveal the red Delete action (centered label), tap it once for “Confirm?”, tap again to delete; swipe right closes the reveal. On the web there is no swipe; hover the row and click the ×, then “Confirm?”. The card slides away when deleted.
 - Search across active reminders.
 - Desktop uses the full window: reminders fill the width in one scrolling document with a frozen list header and a fixed FAB. The sidebar is a push drawer (closed by default; hamburger or in-sidebar collapse; choice persisted; hidden scrollbar).
-- Mobile home is a full-screen panel: search, Today/Scheduled/All/Flagged/Completed, My Lists, then the lists with drag/long-press reordering. The hamburger holds only Notifications, Settings, and Log out. Inside a list, the same hamburger is in the header; back returns to the lists.
+- Mobile home is a full-screen panel: search, Today/Scheduled/All/Flagged/Completed, My Lists, then the lists with drag/long-press reordering. The hamburger holds only Notifications, Settings, and Log out. Inside a list, the same hamburger is in the header; back returns to the lists. Default time model on a phone is floating.
 - Installable PWA with web push notifications. iOS requires 16.4+ and the app installed to the Home Screen.
 - Single-user password auth, CSRF protection, rate-limited login, and secure session cookies behind HTTPS.
 - Auto, light, and dark themes, plus comfortable/compact density.
@@ -26,6 +26,14 @@ Live: https://re.example.com
 - One SQLite database; easy to back up and move.
 
 Urgent is a visual flag only: it marks the reminder in red but does not change notification timing or add an alarm.
+
+### Time model differences
+
+- **Fixed** — stores one absolute instant. It fires at the same moment everywhere; the clock time shown changes with the device zone.
+- **Floating** — stores a wall-clock time in the device's last-synced zone (“6pm wherever I am”). It re-syncs when the app opens in a new zone; the server cannot detect travel while the app is closed.
+- **Anchored** — stores a wall-clock time in a named zone (“6pm Asia/Kolkata”) and keeps that zone's schedule regardless of the device.
+
+The card shows “Floating” without a zone (the editor discloses the last synced zone) and “Anchored · zone” when a specific zone is the rule. Changing the default model/zone in Settings only affects new reminders.
 
 ## Stack
 
@@ -113,7 +121,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.7.0
+1.8.0
 
 ## License
 
