@@ -27,7 +27,7 @@
   </script>
   <link rel="stylesheet" href="/styles.css">
 </head>
-<body data-screen="home">
+<body data-screen="home" class="sidebar-closed">
 
   <svg class="sprite" aria-hidden="true">
     <symbol id="i-calendar" viewBox="0 0 24 24">
@@ -128,6 +128,9 @@
           <button id="refresh-btn-side" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
             <svg class="ic"><use href="#i-refresh"/></svg>
           </button>
+          <button id="sidebar-menu-btn" class="icon-btn" title="Menu" aria-label="Menu">
+            <svg class="ic"><use href="#i-list"/></svg>
+          </button>
           <button id="collapse-btn" class="icon-btn" title="Hide sidebar" aria-label="Hide sidebar">
             <svg class="ic"><use href="#i-collapse"/></svg>
           </button>
@@ -189,6 +192,7 @@
         </button>
       </div>
     </aside>
+    <div id="sidebar-backdrop" class="sidebar-backdrop" hidden></div>
 
     <main class="main">
       <header class="main-head">
@@ -521,6 +525,21 @@ curl -X PATCH -H "Authorization: Bearer $TOKEN" \
         </form>
       </div>
     </div>
+  </div>
+
+  <div id="account-menu" class="account-menu" hidden>
+    <button type="button" id="account-notifications" class="text-btn">
+      <span class="foot-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
+      <span>Notifications</span>
+    </button>
+    <button type="button" id="account-settings" class="text-btn">
+      <span class="foot-ic"><svg class="ic"><use href="#i-settings"/></svg></span>
+      <span>Settings</span>
+    </button>
+    <button type="button" id="account-logout" class="text-btn">
+      <span class="foot-ic"><svg class="ic"><use href="#i-logout"/></svg></span>
+      <span>Log out</span>
+    </button>
   </div>
 
   <div id="toast" class="toast" hidden></div>

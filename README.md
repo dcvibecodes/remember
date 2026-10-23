@@ -17,7 +17,8 @@ Live: https://re.example.com
 - Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
 - Deleting is inline (no browser dialogs): on touch, swipe any row left — including completed rows — to reveal the red Delete action, tap it once for “Confirm?”, tap again to delete. On the web there is no swipe; hover the row and click the ×, then “Confirm?”. The card slides away when deleted.
 - Search across active reminders.
-- Desktop web layout: the whole page scrolls with a frozen list header, a sidebar drawer (closed by default; hamburger or in-sidebar collapse button; choice persisted), and a centered 760 px column. The drawer has no visible scrollbar.
+- Desktop uses the full window: reminders fill the width in one scrolling document with a frozen list header and a fixed FAB. The sidebar is a push drawer (closed by default; hamburger or in-sidebar collapse; choice persisted; hidden scrollbar).
+- Mobile home is a full-screen panel: search, Today/Scheduled/All/Flagged/Completed, My Lists, then the lists with drag/long-press reordering. The hamburger holds only Notifications, Settings, and Log out. Inside a list, the same hamburger is in the header; back returns to the lists.
 - Installable PWA with web push notifications. iOS requires 16.4+ and the app installed to the Home Screen.
 - Single-user password auth, CSRF protection, rate-limited login, and secure session cookies behind HTTPS.
 - Auto, light, and dark themes, plus comfortable/compact density.
@@ -112,7 +113,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.6.3
+1.7.0
 
 ## License
 

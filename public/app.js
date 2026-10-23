@@ -510,56 +510,93 @@ function isDesktop() {
   return window.matchMedia('(min-width: 900px)').matches;
 }
 
-// Desktop drawer: closed on first visit (so it actually reads as a drawer),
-// then the user's open/closed choice persists. Mobile keeps its fixed home
-// screen, so the drawer state never applies there.
-function applySidebar() {
+function getAccountMenu() {
+  return $('#account-menu');
+}
+
+function syncMenuButtons() {
+  if (!getAccountMenu()) return;
+  const desktop = isDesktop();
+  const drawerOpen = !document.body.classList.contains('sidebar-closed');
+  const accountOpen = !getAccountMenu().hidden;
+  const expanded = desktop ? drawerOpen : accountOpen;
+  $$('#menu-btn, #sidebar-menu-btn').forEach((btn) => {
+    btn.setAttribute('aria-expanded', String(expanded));
+    btn.title = desktop ? (drawerOpen ? 'Hide sidebar' : 'Show sidebar') : 'Menu';
+    btn.setAttribute('aria-label', btn.title);
+  });
+}
+
+// Desktop drawer: closed on first visit, choice persisted. Mobile no longer
+// has a drawer — the home screen itself is the full list panel, and the
+// hamburger opens a small Notifications / Settings / Log out menu.
+function syncSidebarChrome(open) {
   const sidebar = document.querySelector('.sidebar');
-  const btn = $('#menu-btn');
+  const backdrop = $('#sidebar-backdrop');
   if (!isDesktop()) {
     document.body.classList.remove('sidebar-closed');
     if (sidebar) sidebar.inert = false;
-    if (btn) btn.setAttribute('aria-expanded', 'true');
+    if (backdrop) backdrop.hidden = true;
+    syncMenuButtons();
     return;
   }
-  const open = localStorage.getItem(SIDEBAR_KEY) === 'open';
   document.body.classList.toggle('sidebar-closed', !open);
   if (sidebar) sidebar.inert = !open;
-  if (btn) {
-    btn.setAttribute('aria-expanded', String(open));
-    btn.title = open ? 'Hide sidebar' : 'Show sidebar';
-    btn.setAttribute('aria-label', btn.title);
-  }
+  if (backdrop) backdrop.hidden = true;
+  syncMenuButtons();
+}
+
+function setSidebar(open, persist = true) {
+  if (persist) localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed');
+  syncSidebarChrome(open);
+}
+
+function applySidebar() {
+  closeAccountMenu();
+  syncSidebarChrome(localStorage.getItem(SIDEBAR_KEY) === 'open');
 }
 
 function toggleSidebar() {
   if (!isDesktop()) return;
-  const closed = document.body.classList.toggle('sidebar-closed');
-  localStorage.setItem(SIDEBAR_KEY, closed ? 'closed' : 'open');
-  const sidebar = document.querySelector('.sidebar');
-  if (sidebar) sidebar.inert = closed;
-  const btn = $('#menu-btn');
-  if (btn) {
-    btn.setAttribute('aria-expanded', String(!closed));
-    btn.title = closed ? 'Show sidebar' : 'Hide sidebar';
-    btn.setAttribute('aria-label', btn.title);
-  }
+  setSidebar(document.body.classList.contains('sidebar-closed'));
+}
+
+function toggleAccountMenu() {
+  if (isDesktop()) return;
+  const menu = getAccountMenu();
+  if (!menu) return;
+  menu.hidden = !menu.hidden;
+  syncMenuButtons();
+}
+
+function closeAccountMenu() {
+  const menu = getAccountMenu();
+  if (menu) menu.hidden = true;
+  if (menu) syncMenuButtons();
+}
+
+function handleMenuButton() {
+  if (isDesktop()) toggleSidebar();
+  else toggleAccountMenu();
 }
 
 let listDrag = null;
+let suppressListClickUntil = 0;
+let dragTouchGuard = false;
 
 function cleanupListDrag() {
   if (!listDrag) return;
   const drag = listDrag;
   listDrag = null;
-  drag.grip.removeEventListener('pointermove', drag.onMove);
-  drag.grip.removeEventListener('pointerup', drag.onUp);
-  drag.grip.removeEventListener('pointercancel', drag.onCancel);
+  window.removeEventListener('pointermove', drag.onMove);
+  window.removeEventListener('pointerup', drag.onUp);
+  window.removeEventListener('pointercancel', drag.onCancel);
   try { drag.grip.releasePointerCapture(drag.pointerId); } catch { /* already released */ }
   drag.ghost.remove();
   drag.row.classList.remove('dragging');
   $$('#lists .list-row').forEach((node) => node.classList.remove('drop-before', 'drop-after'));
   document.body.classList.remove('list-dragging');
+  dragTouchGuard = false;
 }
 
 function startListDrag(event, list, row, grip) {
@@ -595,6 +632,7 @@ function startListDrag(event, list, row, grip) {
     onCancel: null,
   };
   listDrag = drag;
+  dragTouchGuard = true;
 
   drag.onMove = (moveEvent) => {
     if (!listDrag || moveEvent.pointerId !== drag.pointerId) return;
@@ -632,11 +670,81 @@ function startListDrag(event, list, row, grip) {
 
   drag.onCancel = () => cleanupListDrag();
 
-  grip.setPointerCapture(event.pointerId);
-  grip.addEventListener('pointermove', drag.onMove);
-  grip.addEventListener('pointerup', drag.onUp);
-  grip.addEventListener('pointercancel', drag.onCancel);
+  try { grip.setPointerCapture(event.pointerId); } catch { /* best effort */ }
+  // Listen on window: touch pointers are implicitly captured by the row that
+  // received pointerdown, so grip-only listeners miss long-press drags.
+  window.addEventListener('pointermove', drag.onMove);
+  window.addEventListener('pointerup', drag.onUp);
+  window.addEventListener('pointercancel', drag.onCancel);
 }
+
+// Mobile long-press on a list row starts reordering (the grip also works).
+// A short horizontal/vertical move cancels it so normal scrolling is safe.
+let listLongPress = null;
+
+function cancelListLongPress() {
+  if (!listLongPress) return;
+  clearTimeout(listLongPress.timer);
+  window.removeEventListener('pointermove', listLongPress.onMove);
+  window.removeEventListener('pointerup', listLongPress.onUp);
+  window.removeEventListener('pointercancel', listLongPress.onUp);
+  listLongPress = null;
+}
+
+// While a long-press drag is active, stop the browser from turning the
+// vertical movement into page scroll.
+$('#lists').addEventListener('touchmove', (event) => {
+  if (dragTouchGuard) event.preventDefault();
+}, { passive: false });
+
+$('#lists').addEventListener('pointerdown', (event) => {
+  if (!isMobile() || event.pointerType !== 'touch') return;
+  const row = event.target.closest('.list-row');
+  if (!row || event.target.closest('.list-grip')) return;
+  const list = state.lists.find((item) => item.id === Number(row.dataset.listId));
+  if (!list) return;
+  cancelListLongPress();
+  const press = {
+    row,
+    list,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
+    timer: null,
+    onMove: null,
+    onUp: null,
+  };
+  press.onMove = (moveEvent) => {
+    if (moveEvent.pointerId !== press.pointerId) return;
+    if (Math.abs(moveEvent.clientX - press.startX) > 10
+      || Math.abs(moveEvent.clientY - press.startY) > 10) {
+      cancelListLongPress();
+    }
+  };
+  press.onUp = (upEvent) => {
+    if (upEvent.pointerId === press.pointerId) cancelListLongPress();
+  };
+  press.timer = setTimeout(() => {
+    const grip = row.querySelector('.list-grip');
+    if (!grip || !document.contains(row)) {
+      cancelListLongPress();
+      return;
+    }
+    suppressListClickUntil = Date.now() + 900;
+    const init = {
+      pointerId: press.pointerId,
+      clientY: press.startY,
+      button: 0,
+      preventDefault() {},
+    };
+    cancelListLongPress();
+    startListDrag(init, list, row, grip);
+  }, 450);
+  listLongPress = press;
+  window.addEventListener('pointermove', press.onMove);
+  window.addEventListener('pointerup', press.onUp);
+  window.addEventListener('pointercancel', press.onUp);
+});
 
 function persistListOrder(ids) {
   api('/api/lists/order', { method: 'PUT', body: { ids } }).catch(async (err) => {
@@ -714,7 +822,11 @@ function renderSidebar() {
     const row = el('button', {
       class: 'list-row' + (state.view === list.id ? ' active' : ''),
       style: { '--c': colorVar(list.color) },
-      onclick: () => go('list/' + list.id),
+      'data-list-id': list.id,
+      onclick: () => {
+        if (Date.now() < suppressListClickUntil) return;
+        go('list/' + list.id);
+      },
     }, [
       el('span', { class: 'list-dot' }),
       el('span', { class: 'list-name', text: list.name }),
@@ -1875,6 +1987,7 @@ function updateNotifyUI() {
 }
 
 function openNotifySheet() {
+  closeAccountMenu();
   const standalone = window.navigator.standalone === true
     || window.matchMedia('(display-mode: standalone)').matches;
   const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent);
@@ -2187,6 +2300,7 @@ function applyTheme(pref, persist = true) {
 }
 
 async function openSettings() {
+  closeAccountMenu();
   applyTheme(themePreference, false);
   $('#pw-msg').hidden = true;
   $('#settings-msg').hidden = true;
@@ -2386,7 +2500,9 @@ $('#auth-form').addEventListener('submit', submitAuth);
 
 $('#smart-nav').addEventListener('click', (event) => {
   const row = event.target.closest('.nav-row');
-  if (row) go(row.dataset.view);
+  if (!row) return;
+  go(row.dataset.view);
+  closeAccountMenu();
 });
 
 $('#new-list-2').addEventListener('click', () => openListSheet(null));
@@ -2419,8 +2535,19 @@ $('#import-file').addEventListener('change', (event) => {
 });
 
 $('#fab-add').addEventListener('click', () => openEditor(null));
-$('#menu-btn').addEventListener('click', toggleSidebar);
+$('#menu-btn').addEventListener('click', handleMenuButton);
+$('#sidebar-menu-btn').addEventListener('click', toggleAccountMenu);
 $('#collapse-btn').addEventListener('click', toggleSidebar);
+$('#sidebar-backdrop').addEventListener('click', () => setSidebar(false));
+$('#account-notifications').addEventListener('click', () => { closeAccountMenu(); openNotifySheet(); });
+$('#account-settings').addEventListener('click', () => { closeAccountMenu(); openSettings(); });
+$('#account-logout').addEventListener('click', () => { closeAccountMenu(); logout(); });
+document.addEventListener('click', (event) => {
+  const menu = getAccountMenu();
+  if (!menu || menu.hidden) return;
+  if (event.target.closest('#account-menu, #menu-btn, #sidebar-menu-btn')) return;
+  closeAccountMenu();
+});
 $$('.refresh-btn').forEach((btn) => btn.addEventListener('click', refreshState));
 
 function setSearch(value, source) {
