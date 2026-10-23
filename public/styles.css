@@ -48,6 +48,9 @@
   --radius: 14px;
   --radius-sm: 6px;
   --control-height: 40px;
+  --control-height-touch: 44px;
+  --icon-size: 36px;
+  --icon-size-touch: 40px;
   --settings-control-width: 170px;
   --sidebar-width: 280px;
   --list-red: var(--red);
@@ -198,7 +201,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   color: var(--accent-contrast);
   font-weight: 550;
   font-size: 0.875rem;
-  min-height: 36px;
+  min-height: var(--control-height);
 }
 
 .primary-btn:hover { background: var(--accent-hover); }
@@ -212,7 +215,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   color: var(--text-2);
   font-weight: 550;
   font-size: 0.8125rem;
-  min-height: 34px;
+  min-height: var(--control-height);
 }
 
 .secondary-btn:hover { background: var(--fill); color: var(--text); }
@@ -264,8 +267,9 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 }
 
 .icon-btn {
-  width: 30px;
-  height: 30px;
+  position: relative;
+  width: var(--icon-size);
+  height: var(--icon-size);
   display: grid;
   place-items: center;
   border: 0;
@@ -276,9 +280,9 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 }
 
 .icon-btn:hover { background: var(--fill); color: var(--text); }
-.icon-btn .ic { width: 16px; height: 16px; }
-.icon-btn.small { width: 26px; height: 26px; }
-.icon-btn.small .ic { width: 14px; height: 14px; }
+.icon-btn .ic { width: 17px; height: 17px; }
+.icon-btn.small { width: 32px; height: 32px; }
+.icon-btn.small .ic { width: 15px; height: 15px; }
 
 .refresh-btn { flex: none; }
 .refresh-btn:disabled { opacity: 0.45; }
@@ -290,6 +294,32 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 
 @media (prefers-reduced-motion: reduce) {
   .refresh-btn.loading .ic { animation: none; }
+}
+
+/* ---------- Touch targets (coarse pointers) ----------
+   Visual sizes stay as above; an invisible ::after pad expands the tap area
+   to 44px without shifting layout or neighbours. */
+@media (pointer: coarse) {
+  .icon-btn::after,
+  .back-btn::after,
+  .check::after,
+  .row-delete::after,
+  .round-btn::after,
+  .list-grip::after,
+  .swatch::after {
+    content: "";
+    position: absolute;
+    pointer-events: auto;
+  }
+  .icon-btn::after { inset: -4px; }
+  .icon-btn.small::after { inset: -6px; }
+  .back-btn { position: relative; }
+  .back-btn::after { inset: -2px -6px; }
+  .check::after { inset: -10px; }
+  .row-delete::after { inset: -5px; }
+  .round-btn::after { inset: -3px; }
+  .list-grip::after { inset: -11px; }
+  .swatch::after { inset: -5px; }
 }
 
 .search {
@@ -438,6 +468,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 .list-row .badge { font-size: 0.8125rem; }
 
 .list-grip {
+  position: relative;
   width: 22px;
   height: 22px;
   flex: none;
@@ -516,6 +547,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
   border: 0;
   background: transparent;
   padding: 6px 8px;
+  min-height: 40px;
   border-radius: 5px;
   font-size: 0.8125rem;
   color: var(--text-2);
@@ -563,7 +595,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
   background: transparent;
   color: var(--text-2);
   font-size: 0.875rem;
-  padding: 6px 0;
+  padding: 10px 0;
   margin-right: -6px;
 }
 
@@ -635,6 +667,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .sort-control select {
   width: auto;
   max-width: 150px;
+  min-height: 40px;
   border: 0;
   background: transparent;
   color: var(--text-2);
@@ -729,9 +762,10 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .reminder:hover .swipe-content { background: var(--elev); }
 
 .check {
+  position: relative;
   flex: none;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   margin-top: 1px;
   padding: 0;
   border: 1.6px solid var(--text-3);
@@ -746,10 +780,11 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .reminder:hover .check { border-color: var(--c); }
 
 .row-delete {
+  position: relative;
   flex: none;
   align-self: center;
-  min-width: 30px;
-  height: 30px;
+  min-width: 34px;
+  height: 34px;
   padding: 0;
   display: grid;
   place-items: center;
@@ -913,7 +948,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
   font-size: 0.75rem;
   font-weight: 550;
   padding: 6px 12px;
-  min-height: 32px;
+  min-height: 36px;
 }
 
 .mini-btn:hover { background: var(--fill); color: var(--text); }
@@ -1113,8 +1148,9 @@ body.sheet-open .sidebar {
 }
 
 .round-btn {
-  width: 34px;
-  height: 34px;
+  position: relative;
+  width: 38px;
+  height: 38px;
   flex: none;
   display: grid;
   place-items: center;
@@ -1454,6 +1490,7 @@ body.sheet-open .sidebar {
   font-size: 0.75rem;
   font-weight: 550;
   padding: 6px 10px;
+  min-height: 36px;
 }
 
 .segmented-btn.active { background: var(--elev); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
@@ -1492,8 +1529,9 @@ body.sheet-open .sidebar {
 }
 
 .swatch {
-  width: 30px;
-  height: 30px;
+  position: relative;
+  width: 34px;
+  height: 34px;
   justify-self: center;
   border: 0;
   border-radius: 50%;
@@ -1657,7 +1695,30 @@ body.sheet-open .sidebar {
 .token-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 550; }
 .token-meta { color: var(--text-3); font-size: 0.75rem; }
 
-.small-btn { padding: 6px 12px; min-height: 32px; font-size: 0.75rem; }
+.small-btn { padding: 6px 12px; min-height: 36px; font-size: 0.75rem; }
+
+/* Native selects ignore button min-height sizing, so the token-row select
+   gets an explicit shared height, box-model reset, and a custom chevron to
+   match the neighbouring buttons exactly. */
+.token-row select,
+.token-row .small-btn {
+  height: var(--control-height);
+  min-height: var(--control-height);
+  box-sizing: border-box;
+}
+
+.token-row select {
+  padding: 0 28px 0 12px;
+  font-size: 0.8125rem;
+  font-weight: 550;
+  line-height: normal;
+  -webkit-appearance: none;
+  appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23888888' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  cursor: pointer;
+}
 
 .token-examples { font-size: 0.8125rem; color: var(--text-2); }
 
@@ -1723,7 +1784,7 @@ body.sheet-open .sidebar {
 
 .account-menu {
   position: fixed;
-  top: calc(56px + env(safe-area-inset-top));
+  top: calc(62px + env(safe-area-inset-top));
   right: 12px;
   z-index: 70;
   min-width: 210px;
@@ -2007,6 +2068,38 @@ body.sheet-open .sidebar {
   }
 
   .toast { bottom: calc(80px + env(safe-area-inset-bottom)); }
+
+  /* Phone control heights: same visual system as web, one step taller, with
+     tap areas padded out to 44px via the coarse-pointer rule above. */
+  .icon-btn { width: var(--icon-size-touch); height: var(--icon-size-touch); }
+  .icon-btn .ic { width: 18px; height: 18px; }
+  .icon-btn::after { inset: -2px; }
+  .icon-btn.small { width: 36px; height: 36px; }
+  .icon-btn.small::after { inset: -4px; }
+  .check { width: 28px; height: 28px; }
+  .check::after { inset: -8px; }
+  .round-btn { width: 42px; height: 42px; }
+  .round-btn::after { inset: -1px; }
+  .back-btn { min-height: var(--control-height-touch); padding: 10px 8px 10px 0; }
+  .back-btn::after { inset: 0 -6px; }
+  .text-btn { min-height: var(--control-height-touch); padding: 10px 12px; }
+  .primary-btn, .secondary-btn { min-height: var(--control-height-touch); }
+  .small-btn { min-height: var(--control-height-touch); }
+  .mini-btn { min-height: var(--control-height-touch); }
+  .sort-control select { min-height: var(--control-height-touch); }
+  .token-row select,
+  .token-row .small-btn { height: var(--control-height-touch); min-height: var(--control-height-touch); }
+  .settings-row { min-height: var(--control-height-touch); }
+  .segmented-btn { min-height: var(--control-height-touch); }
+  .nav-row { min-height: var(--control-height-touch); padding: 10px 8px; }
+  [data-density="compact"] .check::after { inset: -12px; }
+  .settings-row select,
+  .settings-row input[type="time"],
+  .settings-row input[type="number"],
+  .settings-row input[type="text"],
+  .settings-group input { height: var(--control-height-touch); }
+  #token-generate, #token-copy { min-height: var(--control-height-touch); }
+  .sidebar-head, .main-head { min-height: var(--icon-size-touch); }
 }
 
 @media (max-width: 899px) and (prefers-reduced-motion: reduce) {

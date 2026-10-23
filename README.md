@@ -2,6 +2,10 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v1.9.1
+
+- **Consistent control heights + bigger touch targets** — settings inputs/selects/buttons and the token-row controls all share one height (40px desktop, 44px phone); the token-row Access select gets an explicit height, box-model reset, and custom chevron so it renders exactly like the Change access/Revoke buttons next to it. Header icon buttons grow (36px desktop, 40px phone) and invisible hit pads expand taps to 44px on coarse pointers; nav rows, menu items, sort select, and segmented controls get 44px phone targets. Home/detail header geometry unchanged.
+
 ## What's New in v1.8.12
 
 - **Narrower desktop column** — the centered app column is now 54vw (max 990px), 10% slimmer than before. Mobile unchanged.
