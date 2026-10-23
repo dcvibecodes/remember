@@ -1,6 +1,6 @@
 {
   "name": "remember",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "A self-hosted, Apple Reminders-style task app",
   "main": "server.js",
   "scripts": {

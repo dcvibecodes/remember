@@ -1286,12 +1286,19 @@ function buildZoneOptions(selected) {
     select.append(el('option', { value: zone, text: zone.replace(/_/g, ' ') }));
   }
   select.value = zones.includes(selected) ? selected : (zones[0] || 'UTC');
+  updateZoneVisual();
+}
+
+function updateZoneVisual() {
+  const value = $('#e-zone').value || '';
+  $('#e-zone-value').textContent = value ? value.replace(/_/g, ' ') : 'Choose a time zone';
 }
 
 function syncModelRows() {
   const model = $('#e-model').value;
   $('#e-model-value').textContent = model === 'fixed' ? 'Fixed time'
     : model === 'floating' ? 'Floating' : 'Anchored';
+  updateZoneVisual();
   $('#e-zone-row').hidden = model !== 'anchored';
   const hint = $('#e-model-hint');
   if (model === 'floating') {
@@ -2004,10 +2011,12 @@ async function endSwipe(commit) {
   lastSwipeEnd = Date.now();
   releaseSwipePointer(current);
   const reminder = state.reminders.find((item) => item.id === current.id);
-  if (!reminder || reminder.completed || commit === 0) {
+  if (!reminder || commit === 0) {
     resetSwipe(current.row);
     return;
   }
+  // Completed reminders are deletable too — the checkbox only controls
+  // completion; swipe-left delete applies to every row.
   deleteReminderSwipe(reminder, () => resetSwipe(current.row));
 }
 
@@ -2337,7 +2346,7 @@ $('#e-repeat').addEventListener('change', () => onRepeatChange(true));
 $('#e-repeat-interval').addEventListener('change', () => { syncRepeatRows(); markScheduleManual(); });
 $('#e-repeat-unit').addEventListener('change', () => { syncRepeatRows(); markScheduleManual(); });
 $('#e-model').addEventListener('change', syncModelRows);
-$('#e-zone').addEventListener('change', syncModelRows);
+$('#e-zone').addEventListener('change', () => { updateZoneVisual(); syncModelRows(); });
 $('#e-snooze-btn').addEventListener('click', toggleEditorSnooze);
 $('#e-skip-btn').addEventListener('click', skipCurrentOccurrence);
 $('#scope-occurrence').addEventListener('click', () => setScope('occurrence'));

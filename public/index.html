@@ -92,6 +92,10 @@
     <symbol id="i-collapse" viewBox="0 0 24 24">
       <path d="M13.5 6l-6 6 6 6M19.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M3.5 12h17M12 3.5c2.6 2.4 4 5.4 4 8.5s-1.4 6.1-4 8.5c-2.6-2.4-4-5.4-4-8.5s1.4-6.1 4-8.5z" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    </symbol>
     <symbol id="i-flag" viewBox="0 0 24 24">
       <path d="M6 21V4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
       <path d="M6 4.5c4-2.2 7 2.2 12 0v9c-5 2.2-8-2.2-12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
@@ -340,7 +344,11 @@
                 <option value="anchored">Anchored to a time zone</option>
               </select>
             </div>
-            <div class="ed-subrow" id="e-zone-row" hidden>
+            <div class="ed-row ed-select-row" id="e-zone-row" hidden>
+              <span class="ed-ic"><svg class="ic"><use href="#i-globe"/></svg></span>
+              <span class="ed-label">Time zone</span>
+              <span class="ed-value" id="e-zone-value"></span>
+              <svg class="ic ed-chevron"><use href="#i-chevron"/></svg>
               <select id="e-zone" aria-label="Time zone"></select>
             </div>
           </div>

@@ -11,11 +11,11 @@ Live: https://re.example.com
 - Recurring reminders (daily/weekly/monthly/yearly/custom) with per-occurrence completion history, skip, and this-occurrence-vs-series editing.
 - Natural-language quick add: "call mom tomorrow 6pm" pre-fills the editor with a removable preview.
 - Smart lists: Today (overdue pinned), Scheduled (grouped by date), All, Flagged (urgent), Completed.
-- Time models: fixed instant (default), floating wall-clock that follows the device time zone, or zone-anchored.
+- Time models: fixed instant (default), floating wall-clock that follows the device time zone, or zone-anchored (with a styled Time zone picker in the editor).
 - Snooze (in-app button + notification actions where supported), opt-in re-push with quiet hours.
 - Token API so external agents can list, add, and complete reminders without a browser.
 - Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
-- Touch/mouse gestures: swipe a row left to delete (with confirm); the card follows your finger and springs back below the threshold. Completion stays on the checkbox; desktop also shows a hover delete button.
+- Touch/mouse gestures: swipe any row left — including completed rows — to delete (with confirm); the card follows your finger and springs back below the threshold. Completion stays on the checkbox; the Delete action shows a cross only on desktop (mobile shows just the label); desktop also has a hover delete button.
 - Search across active reminders.
 - Desktop web layout: the whole page scrolls with a frozen list header, a sidebar drawer (closed by default; hamburger or in-sidebar collapse button; choice persisted), and a centered 760 px column. The drawer has no visible scrollbar.
 - Installable PWA with web push notifications. iOS requires 16.4+ and the app installed to the Home Screen.
@@ -112,7 +112,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.6.1
+1.6.2
 
 ## License
 
