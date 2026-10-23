@@ -296,7 +296,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   position: relative;
   display: flex;
   align-items: center;
-  margin: 10px 4px 0;
+  margin: 10px 0 0;
 }
 
 .search-ic {
@@ -362,7 +362,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   flex: none;
 }
 
-.nav-label { flex: 1; font-weight: 500; }
+.nav-label { flex: 1; font-weight: 500; padding-left: 2px; }
 .nav-row.active .nav-label { font-weight: 600; }
 
 .badge {
@@ -392,7 +392,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px 0 10px;
+  padding: 0 6px 0 0;
   margin-top: 2px;
   font-size: 0.72rem;
   font-weight: 600;
@@ -409,7 +409,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   flex: none;
   border-radius: 50%;
   background: var(--c);
-  margin: 0 5px;
+  margin: 0 10px 0 0;
 }
 
 .list-row .list-name {
