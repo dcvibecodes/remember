@@ -2,6 +2,10 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v1.8.8
+
+- **Divider-free headers** — removed the divider under the list-view header (and the matching Home one), so the search bar sits directly beneath the header row with the same 10px rhythm on both screens.
+
 ## What's New in v1.8.7
 
 - **Matching headers** — Home now has the same divider under the header row as the list view, and both screens share one background. Header, icons, and search stay frozen on every screen.
@@ -25,7 +29,7 @@ A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due
 - **Unified Home** — one full-width Home panel on web and mobile, with a centered 60vw desktop column (max 1100px), plain-text Sort/Order controls, visible drag grips, and a New List text button. The old sidebar/card-grid layout is gone.
 - **Fixed menu position** — the hamburger now stays at the exact same top-right position on Home and inside a list; it no longer jumps to the left.
 - **Self-hosted fonts** — Fraunces and Outfit are served from `/fonts` and precached by the service worker. No Google Fonts requests, so the display typography is identical on web/mobile and works offline.
-- **Service worker** — cache bumped to `remember-v1.8.7`.
+- **Service worker** — cache bumped to `remember-v1.8.8`.
 
 ## Features
 
