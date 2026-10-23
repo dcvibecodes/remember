@@ -15,9 +15,9 @@ Live: https://re.example.com
 - Snooze (in-app button + notification actions where supported), opt-in re-push with quiet hours.
 - Token API so external agents can list, add, and complete reminders without a browser.
 - Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
-- Touch gestures: swipe a row right to complete, left to delete (with confirm); the card follows your finger and springs back below the threshold. Desktop shows a hover delete button.
+- Touch/mouse gestures: swipe a row left to delete (with confirm); the card follows your finger and springs back below the threshold. Completion stays on the checkbox; desktop also shows a hover delete button.
 - Search across active reminders.
-- Desktop web layout: the whole page scrolls with a frozen list header, a slide-over sidebar drawer (toggle persisted), and a centered reading-width column.
+- Desktop web layout: the whole page scrolls with a frozen list header, a sidebar drawer (closed by default; hamburger or in-sidebar collapse button; choice persisted), and a centered 760 px column. The drawer has no visible scrollbar.
 - Installable PWA with web push notifications. iOS requires 16.4+ and the app installed to the Home Screen.
 - Single-user password auth, CSRF protection, rate-limited login, and secure session cookies behind HTTPS.
 - Auto, light, and dark themes, plus comfortable/compact density.
@@ -112,7 +112,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.6.0
+1.6.1
 
 ## License
 

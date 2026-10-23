@@ -89,6 +89,9 @@
     <symbol id="i-grip" viewBox="0 0 24 24">
       <path d="M5 8h14M5 12h14M5 16h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
     </symbol>
+    <symbol id="i-collapse" viewBox="0 0 24 24">
+      <path d="M13.5 6l-6 6 6 6M19.5 6l-6 6 6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
     <symbol id="i-flag" viewBox="0 0 24 24">
       <path d="M6 21V4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
       <path d="M6 4.5c4-2.2 7 2.2 12 0v9c-5 2.2-8-2.2-12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
@@ -117,9 +120,14 @@
     <aside class="sidebar">
       <div class="sidebar-head">
         <h1 class="wordmark">Remember</h1>
-        <button id="refresh-btn-side" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
-          <svg class="ic"><use href="#i-refresh"/></svg>
-        </button>
+        <div class="sidebar-head-actions">
+          <button id="refresh-btn-side" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
+            <svg class="ic"><use href="#i-refresh"/></svg>
+          </button>
+          <button id="collapse-btn" class="icon-btn" title="Hide sidebar" aria-label="Hide sidebar">
+            <svg class="ic"><use href="#i-collapse"/></svg>
+          </button>
+        </div>
       </div>
 
       <form id="search-form" class="search" role="search">

@@ -225,6 +225,14 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   padding: 0 6px;
 }
 
+.sidebar-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+#collapse-btn { display: none; }
+
 .wordmark {
   margin: 0;
   font-family: 'Fraunces', serif;
@@ -564,14 +572,14 @@ body.list-dragging .list-grip { cursor: grabbing; }
 
 .reminder:last-child { border-bottom: 0; }
 
-/* Swipe layers: the content slides with the finger, revealing the action
-   underneath — Complete on the left, Delete on the right. */
+/* Swipe layer: the content slides left, revealing Delete underneath.
+   (Completion lives on the checkbox, so there is no Done swipe action.) */
 .swipe-bg {
   position: absolute;
   inset: 0;
   display: flex;
   align-items: stretch;
-  justify-content: space-between;
+  justify-content: flex-end;
   pointer-events: none;
 }
 
@@ -588,8 +596,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
 }
 
 .swipe-act .ic { width: 18px; height: 18px; }
-.swipe-act.done { background: var(--c); }
-.swipe-act.del { background: var(--red); margin-left: auto; }
+.swipe-act.del { background: var(--red); width: 100%; justify-content: flex-end; }
 
 .swipe-content {
   position: relative;
@@ -605,7 +612,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
 
 .swipe-content.swiping { transition: none; user-select: none; -webkit-user-select: none; }
 
-.reminder:hover .swipe-content { background: var(--hover); }
+.reminder:hover .swipe-content { background: var(--elev); }
 
 .check {
   flex: none;
@@ -1627,8 +1634,9 @@ body.sheet-open .sidebar {
 
   .shell { display: block; height: auto; min-height: 100dvh; }
 
-  /* The sidebar is a slide-over drawer: no more iframe-like permanent
-     scroller. It overlays content, and its open/closed choice persists. */
+  /* The sidebar is a slide-in drawer, not a permanent inner scroller. It
+     pushes the main column when open (no overlay/blocking) and remembers the
+     user's choice. The scrollbar is hidden; long lists still scroll. */
   .sidebar {
     position: fixed;
     left: 0;
@@ -1638,11 +1646,25 @@ body.sheet-open .sidebar {
     box-shadow: 8px 0 30px rgba(0, 0, 0, 0.1);
     transform: translateX(0);
     transition: transform 0.22s ease;
+    overflow-y: auto;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
 
-  body.sidebar-closed .sidebar { transform: translateX(-105%); }
+  .sidebar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
-  .main { min-height: 100dvh; }
+  body.sidebar-closed .sidebar {
+    transform: translateX(-105%);
+    pointer-events: none;
+  }
+
+  .main {
+    min-height: 100dvh;
+    margin-left: var(--sidebar-width);
+    transition: margin-left 0.22s ease;
+  }
+
+  body.sidebar-closed .main { margin-left: 0; }
 
   /* The list title freezes on top while the whole page scrolls beneath it. */
   .main-head {
@@ -1656,10 +1678,11 @@ body.sheet-open .sidebar {
   .content { overflow: visible; max-width: 760px; }
 
   #menu-btn { display: grid; }
+  #collapse-btn { display: grid; }
 }
 
 @media (min-width: 900px) and (prefers-reduced-motion: reduce) {
-  .sidebar { transition: none; }
+  .sidebar, .main { transition: none; }
 }
 
 /* ---------- Compact density (opt-in) ---------- */
@@ -1793,14 +1816,15 @@ body.sheet-open .sidebar {
 }
 
 @media (hover: none) {
-  .reminder:hover .swipe-content,
   .nav-row:hover,
   .list-row:hover,
   .icon-btn:hover,
   .text-btn:hover,
   .list-card:hover { background: transparent; }
   .text-btn:hover { color: var(--text-2); }
-  .reminder:active .swipe-content { background: var(--hover); }
+  /* Keep the swipe content opaque on touch: the Delete layer sits beneath. */
+  .reminder:hover .swipe-content { background: var(--surface); }
+  .reminder:active .swipe-content { background: var(--elev); }
 }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

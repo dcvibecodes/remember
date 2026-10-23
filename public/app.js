@@ -506,19 +506,44 @@ function render() {
 
 const SIDEBAR_KEY = 'remember.sidebar';
 
-// Desktop drawer: open by default, toggleable, and the choice persists.
+function isDesktop() {
+  return window.matchMedia('(min-width: 900px)').matches;
+}
+
+// Desktop drawer: closed on first visit (so it actually reads as a drawer),
+// then the user's open/closed choice persists. Mobile keeps its fixed home
+// screen, so the drawer state never applies there.
 function applySidebar() {
-  const open = localStorage.getItem(SIDEBAR_KEY) !== 'closed';
-  document.body.classList.toggle('sidebar-closed', !open);
+  const sidebar = document.querySelector('.sidebar');
   const btn = $('#menu-btn');
-  if (btn) btn.setAttribute('aria-expanded', String(open));
+  if (!isDesktop()) {
+    document.body.classList.remove('sidebar-closed');
+    if (sidebar) sidebar.inert = false;
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+    return;
+  }
+  const open = localStorage.getItem(SIDEBAR_KEY) === 'open';
+  document.body.classList.toggle('sidebar-closed', !open);
+  if (sidebar) sidebar.inert = !open;
+  if (btn) {
+    btn.setAttribute('aria-expanded', String(open));
+    btn.title = open ? 'Hide sidebar' : 'Show sidebar';
+    btn.setAttribute('aria-label', btn.title);
+  }
 }
 
 function toggleSidebar() {
+  if (!isDesktop()) return;
   const closed = document.body.classList.toggle('sidebar-closed');
   localStorage.setItem(SIDEBAR_KEY, closed ? 'closed' : 'open');
+  const sidebar = document.querySelector('.sidebar');
+  if (sidebar) sidebar.inert = closed;
   const btn = $('#menu-btn');
-  if (btn) btn.setAttribute('aria-expanded', String(!closed));
+  if (btn) {
+    btn.setAttribute('aria-expanded', String(!closed));
+    btn.title = closed ? 'Show sidebar' : 'Hide sidebar';
+    btn.setAttribute('aria-label', btn.title);
+  }
 }
 
 let listDrag = null;
@@ -1169,10 +1194,6 @@ function reminderRow(reminder, options = {}) {
 
   const content = el('div', { class: 'swipe-content' }, [check, body, remove]);
   const background = el('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, [
-    el('span', { class: 'swipe-act done' }, [
-      el('span', { html: ICON('check', 'ic') }),
-      el('span', { text: 'Done' }),
-    ]),
     el('span', { class: 'swipe-act del' }, [
       el('span', { text: 'Delete' }),
       el('span', { html: ICON('x', 'ic') }),
@@ -1903,11 +1924,12 @@ function trapSheetTab(event) {
   }
 }
 
-// Interactive swipe: the card follows the finger, revealing Done on the
-// right-swipe side and Delete on the left-swipe side. Releasing past the
-// threshold acts (delete still asks first); otherwise the card springs back.
-// Links and buttons opt out, and vertical scrolling passes through untouched
-// (rows also declare touch-action: pan-y).
+// Interactive swipe: the card follows the pointer and reveals Delete beneath
+// it. Completion lives on the checkbox, so there is no Done swipe action.
+// Releasing past the threshold asks to delete; otherwise the card springs
+// back. Works with touch and mouse (pointer events), vertical scrolling
+// passes through untouched (rows declare touch-action: pan-y), and links /
+// buttons opt out.
 let swipe = null;
 let lastSwipeEnd = 0;
 
@@ -1923,37 +1945,46 @@ function resetSwipe(row) {
   }
 }
 
-$('#content').addEventListener('touchstart', (event) => {
-  if (event.touches.length !== 1) {
-    swipe = null;
-    return;
-  }
+function releaseSwipePointer(current) {
+  if (!current || !current.row) return;
+  try { current.row.releasePointerCapture(current.pointerId); } catch { /* already released */ }
+}
+
+$('#content').addEventListener('pointerdown', (event) => {
+  if (event.pointerType === 'mouse' && event.button !== 0) return;
   const row = event.target.closest('.reminder');
   if (!row || event.target.closest('a, button, input, textarea, select')) {
     swipe = null;
     return;
   }
-  const touch = event.touches[0];
   swipe = {
     id: Number(row.dataset.reminderId),
     row,
-    startX: touch.clientX,
-    startY: touch.clientY,
+    pointerId: event.pointerId,
+    startX: event.clientX,
+    startY: event.clientY,
     active: false,
   };
-}, { passive: true });
+  try { row.setPointerCapture(event.pointerId); } catch { /* ignore */ }
+});
 
-$('#content').addEventListener('touchmove', (event) => {
-  if (!swipe || event.touches.length !== 1) return;
+$('#content').addEventListener('pointermove', (event) => {
+  if (!swipe || event.pointerId !== swipe.pointerId) return;
   if (!document.contains(swipe.row)) {
     swipe = null;
     return;
   }
-  const touch = event.touches[0];
-  const dx = touch.clientX - swipe.startX;
-  const dy = touch.clientY - swipe.startY;
+  const dx = event.clientX - swipe.startX;
+  const dy = event.clientY - swipe.startY;
   if (!swipe.active) {
     if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy) * 1.2) return;
+    // Left swipe only. A rightward drag is ignored visually, but still
+    // counts as a gesture so the trailing click doesn't open the editor.
+    if (dx > 0) {
+      lastSwipeEnd = Date.now();
+      swipe = null;
+      return;
+    }
     swipe.active = true;
     const content = swipeContentOf(swipe.row);
     if (content) content.classList.add('swiping');
@@ -1962,45 +1993,43 @@ $('#content').addEventListener('touchmove', (event) => {
   const content = swipeContentOf(swipe.row);
   if (!content) return;
   const max = Math.min(140, (swipe.row.offsetWidth || 300) * 0.45);
-  const clamped = Math.max(-max, Math.min(max, dx));
+  const clamped = Math.max(-max, Math.min(0, dx));
   content.style.transform = clamped ? `translateX(${clamped}px)` : '';
-}, { passive: false });
+});
 
 async function endSwipe(commit) {
   const current = swipe;
   swipe = null;
   if (!current || !current.active) return;
   lastSwipeEnd = Date.now();
+  releaseSwipePointer(current);
   const reminder = state.reminders.find((item) => item.id === current.id);
   if (!reminder || reminder.completed || commit === 0) {
     resetSwipe(current.row);
     return;
   }
-  if (commit < 0) {
-    // Keep the card parked on Delete while the confirm is up; spring back
-    // if the user cancels.
-    deleteReminderSwipe(reminder, () => resetSwipe(current.row));
-  } else {
-    resetSwipe(current.row);
-    toggleCompleted(reminder);
-  }
+  deleteReminderSwipe(reminder, () => resetSwipe(current.row));
 }
 
-$('#content').addEventListener('touchend', (event) => {
-  if (!swipe || !swipe.active || event.changedTouches.length !== 1) {
+$('#content').addEventListener('pointerup', (event) => {
+  if (!swipe || event.pointerId !== swipe.pointerId) return;
+  if (!swipe.active) {
     swipe = null;
     return;
   }
-  const dx = event.changedTouches[0].clientX - swipe.startX;
+  const dx = event.clientX - swipe.startX;
   const width = swipe.row.offsetWidth || 300;
   const threshold = Math.min(100, width * 0.35);
   endSwipe(Math.abs(dx) < threshold ? 0 : dx);
-}, { passive: true });
+});
 
-$('#content').addEventListener('touchcancel', () => {
-  if (swipe && swipe.active) resetSwipe(swipe.row);
+$('#content').addEventListener('pointercancel', () => {
+  if (swipe && swipe.active) {
+    resetSwipe(swipe.row);
+    releaseSwipePointer(swipe);
+  }
   swipe = null;
-}, { passive: true });
+});
 
 async function deleteReminderSwipe(reminder, onCancel) {
   const title = reminder.title.length > 60 ? reminder.title.slice(0, 60) + '…' : reminder.title;
@@ -2273,6 +2302,7 @@ $('#import-file').addEventListener('change', (event) => {
 
 $('#fab-add').addEventListener('click', () => openEditor(null));
 $('#menu-btn').addEventListener('click', toggleSidebar);
+$('#collapse-btn').addEventListener('click', toggleSidebar);
 $$('.refresh-btn').forEach((btn) => btn.addEventListener('click', refreshState));
 
 function setSearch(value, source) {
@@ -2388,6 +2418,7 @@ async function refreshOnResume() {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('focus', refreshOnResume);
+window.addEventListener('resize', applySidebar);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refreshOnResume();
 });
