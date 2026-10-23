@@ -110,7 +110,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.3.0
+1.4.0
 
 ## License
 
