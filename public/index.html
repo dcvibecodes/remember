@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Remember</title>
+  <meta name="description" content="A self-hosted, Apple Reminders-style task app.">
+  <meta name="theme-color" content="#f5efe6">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Remember">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/icons/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Outfit:wght@300..700&display=swap" rel="stylesheet">
+  <script>
+    (() => {
+      const pref = localStorage.getItem('theme-preference') || 'auto';
+      const dark = pref === 'dark' || (pref === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+      document.querySelector('meta[name="theme-color"]').setAttribute('content', dark ? '#000000' : '#f5efe6');
+    })();
+  </script>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body data-screen="home">
+
+  <svg class="sprite" aria-hidden="true">
+    <symbol id="i-calendar" viewBox="0 0 24 24">
+      <rect x="3" y="4.5" width="18" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M3 9h18M8 2.5v4M16 2.5v4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <circle cx="12" cy="14.5" r="1.6" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-all" viewBox="0 0 24 24">
+      <rect x="4" y="3.5" width="16" height="5.5" rx="2.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="4" y="11" width="16" height="4.2" rx="2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <rect x="4" y="17" width="16" height="3.5" rx="1.75" fill="none" stroke="currentColor" stroke-width="1.7"/>
+    </symbol>
+    <symbol id="i-done" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M8 12.4l2.6 2.6L16.2 9.4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-check" viewBox="0 0 24 24">
+      <path d="M5 12.5l4.4 4.4L19 6.5" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-back" viewBox="0 0 24 24">
+      <path d="M14.5 5.5L8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-plus" viewBox="0 0 24 24">
+      <path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-search" viewBox="0 0 24 24">
+      <circle cx="10.5" cy="10.5" r="6" fill="none" stroke="currentColor" stroke-width="1.9"/>
+      <path d="M15 15l5 5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-bell" viewBox="0 0 24 24">
+      <path d="M6 16.5V11a6 6 0 1112 0v5.5l1.5 2.5h-15L6 16.5z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+      <path d="M10 20a2.2 2.2 0 004 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-settings" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+  </svg>
+
+  <div id="auth" class="auth" hidden>
+    <form id="auth-form" class="auth-card" novalidate>
+      <div class="auth-brand">
+        <img class="auth-mark" src="/icons/favicon.svg" alt="" width="34" height="34">
+        <h1>Remember</h1>
+      </div>
+      <p id="auth-sub" class="auth-sub">Enter your password to continue</p>
+      <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required>
+      <input id="auth-confirm" type="password" placeholder="Confirm password" autocomplete="new-password" hidden>
+      <button type="submit" id="auth-submit" class="primary-btn">Unlock</button>
+      <p id="auth-error" class="auth-error" hidden></p>
+    </form>
+  </div>
+
+  <div id="shell" class="shell" hidden>
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <h1 class="wordmark">Remember</h1>
+        <button id="new-list" class="icon-btn" title="New list" aria-label="New list">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+      </div>
+
+      <form id="search-form" class="search" role="search">
+        <svg class="ic search-ic"><use href="#i-search"/></svg>
+        <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search reminders">
+      </form>
+
+      <nav class="nav" id="smart-nav">
+        <button class="nav-row" data-view="today">
+          <span class="nav-ic today"><svg class="ic"><use href="#i-calendar"/></svg></span>
+          <span class="nav-label">Today</span>
+          <span class="badge" id="count-today"></span>
+        </button>
+        <button class="nav-row" data-view="all">
+          <span class="nav-ic all"><svg class="ic"><use href="#i-all"/></svg></span>
+          <span class="nav-label">All</span>
+          <span class="badge" id="count-all"></span>
+        </button>
+        <button class="nav-row" data-view="completed">
+          <span class="nav-ic done"><svg class="ic"><use href="#i-done"/></svg></span>
+          <span class="nav-label">Completed</span>
+        </button>
+      </nav>
+
+      <div class="section-head">
+        <span>My Lists</span>
+        <button id="new-list-2" class="icon-btn small" title="New list" aria-label="New list">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+      </div>
+      <div id="lists" class="lists"></div>
+
+      <div class="sidebar-foot">
+        <button id="notifications-btn" class="text-btn">
+          <svg class="ic small-ic"><use href="#i-bell"/></svg>
+          <span id="notifications-label">Notifications</span>
+        </button>
+        <button id="settings-btn" class="text-btn">
+          <svg class="ic small-ic"><use href="#i-settings"/></svg>
+          <span>Settings</span>
+        </button>
+        <button id="logout-btn" class="text-btn">Log out</button>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="main-head">
+        <button id="back-btn" class="back-btn" aria-label="Back to lists">
+          <svg class="ic"><use href="#i-back"/></svg>
+          <span>Lists</span>
+        </button>
+        <div class="title-wrap">
+          <h2 id="view-title">Today</h2>
+          <span id="view-count" class="view-count"></span>
+        </div>
+        <button id="view-menu" class="icon-btn" aria-label="List options" hidden>&#8943;</button>
+      </header>
+
+      <form id="main-search-form" class="main-search" role="search">
+        <svg class="ic search-ic"><use href="#i-search"/></svg>
+        <input id="main-search" type="search" placeholder="Search" autocomplete="off" aria-label="Search reminders">
+      </form>
+
+      <div id="content" class="content"></div>
+
+      <div id="add-bar" class="add-bar">
+        <button id="add-btn" class="add-btn" aria-label="New reminder">
+          <svg class="ic"><use href="#i-plus"/></svg>
+        </button>
+        <input id="quick-add" placeholder="New Reminder" autocomplete="off" maxlength="500" aria-label="New reminder">
+      </div>
+    </main>
+  </div>
+
+  <div id="editor" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <form id="editor-form" class="sheet-card">
+      <header class="sheet-head">
+        <button type="button" class="text-btn" data-close>Cancel</button>
+        <span id="editor-heading">New Reminder</span>
+        <button type="submit" class="text-btn strong">Done</button>
+      </header>
+      <div class="sheet-body">
+        <input id="e-title" class="e-title" placeholder="Title" maxlength="500" required autocomplete="off">
+        <textarea id="e-notes" class="e-notes" placeholder="Notes" rows="3" maxlength="5000"></textarea>
+        <div class="field">
+          <label for="e-list">List</label>
+          <select id="e-list"></select>
+        </div>
+        <div class="field">
+          <label for="e-date">Date</label>
+          <input id="e-date" type="date">
+        </div>
+        <div class="field">
+          <label for="e-time">Time</label>
+          <input id="e-time" type="time">
+        </div>
+        <div class="field switch-row" id="completed-row">
+          <label for="e-completed">Completed</label>
+          <input id="e-completed" type="checkbox">
+        </div>
+        <button type="button" id="e-delete" class="danger-btn" hidden>Delete Reminder</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="list-sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <form id="list-form" class="sheet-card">
+      <header class="sheet-head">
+        <button type="button" class="text-btn" data-close>Cancel</button>
+        <span id="list-heading">New List</span>
+        <button type="submit" class="text-btn strong">Done</button>
+      </header>
+      <div class="sheet-body">
+        <input id="l-name" class="e-title" placeholder="List Name" maxlength="120" required autocomplete="off">
+        <div class="swatches" id="swatches"></div>
+        <button type="button" id="l-delete" class="danger-btn" hidden>Delete List</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="notify-sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-card">
+      <header class="sheet-head">
+        <span></span>
+        <span>Notifications</span>
+        <button type="button" class="text-btn strong" data-close>Done</button>
+      </header>
+      <div class="sheet-body">
+        <p id="notify-status" class="notify-status">Checking status&hellip;</p>
+        <p id="notify-hint" class="notify-hint" hidden></p>
+        <button type="button" id="notify-enable" class="primary-btn">Enable Notifications</button>
+        <button type="button" id="notify-test" class="secondary-btn" hidden>Send Test Notification</button>
+        <button type="button" id="notify-disable" class="secondary-btn danger-text" hidden>Turn Off</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-card">
+      <header class="sheet-head">
+        <span></span>
+        <span>Settings</span>
+        <button type="button" class="text-btn strong" data-close>Done</button>
+      </header>
+      <div class="sheet-body">
+        <div class="settings-group">
+          <h3>Appearance</h3>
+          <div class="theme-toggle-row" id="theme-toggle" role="group" aria-label="Theme">
+            <button type="button" class="theme-option-btn" data-theme-pref="auto">Auto</button>
+            <button type="button" class="theme-option-btn" data-theme-pref="light">Light</button>
+            <button type="button" class="theme-option-btn" data-theme-pref="dark">Dark</button>
+          </div>
+        </div>
+        <form id="password-form" class="settings-group" novalidate>
+          <h3>Change Password</h3>
+          <input id="pw-current" type="password" placeholder="Current password" autocomplete="current-password" required>
+          <input id="pw-new" type="password" placeholder="New password (min 8 characters)" autocomplete="new-password" minlength="8" required>
+          <input id="pw-confirm" type="password" placeholder="Confirm new password" autocomplete="new-password" minlength="8" required>
+          <p id="pw-msg" class="form-msg" hidden></p>
+          <button type="submit" class="primary-btn">Update Password</button>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" hidden></div>
+
+  <script src="/app.js"></script>
+</body>
+</html>
