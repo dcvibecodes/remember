@@ -65,6 +65,35 @@
       <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.7"/>
       <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24">
+      <path d="M9 4.5H6.5A2.5 2.5 0 004 7v10a2.5 2.5 0 002.5 2.5H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M13 8l4 4-4 4M17 12H8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-refresh" viewBox="0 0 24 24">
+      <path d="M20 11.5a8 8 0 11-2.3-5.2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+      <path d="M20 5.5V11h-5.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-x" viewBox="0 0 24 24">
+      <path d="M6 6l12 12M18 6L6 18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24">
+      <path d="M9 5.5l6.5 6.5L9 18.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-clock" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M12 7.5V12l3 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-list" viewBox="0 0 24 24">
+      <path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
+      <path d="M12 11v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      <circle cx="12" cy="8" r="1.15" fill="currentColor"/>
+    </symbol>
+    <symbol id="i-grip" viewBox="0 0 24 24">
+      <path d="M5 8h14M5 12h14M5 16h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+    </symbol>
   </svg>
 
   <div id="auth" class="auth" hidden>
@@ -122,14 +151,17 @@
 
       <div class="sidebar-foot">
         <button id="notifications-btn" class="text-btn">
-          <svg class="ic small-ic"><use href="#i-bell"/></svg>
+          <span class="foot-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
           <span id="notifications-label">Notifications</span>
         </button>
         <button id="settings-btn" class="text-btn">
-          <svg class="ic small-ic"><use href="#i-settings"/></svg>
+          <span class="foot-ic"><svg class="ic"><use href="#i-settings"/></svg></span>
           <span>Settings</span>
         </button>
-        <button id="logout-btn" class="text-btn">Log out</button>
+        <button id="logout-btn" class="text-btn">
+          <span class="foot-ic"><svg class="ic"><use href="#i-logout"/></svg></span>
+          <span>Log out</span>
+        </button>
       </div>
     </aside>
 
@@ -144,6 +176,9 @@
           <span id="view-count" class="view-count"></span>
         </div>
         <button id="view-menu" class="icon-btn" aria-label="List options" hidden>&#8943;</button>
+        <button id="refresh-btn" class="icon-btn" title="Refresh reminders" aria-label="Refresh reminders">
+          <svg class="ic"><use href="#i-refresh"/></svg>
+        </button>
       </header>
 
       <form id="main-search-form" class="main-search" role="search">
@@ -152,44 +187,90 @@
       </form>
 
       <div id="content" class="content"></div>
-
-      <div id="add-bar" class="add-bar">
-        <button id="add-btn" class="add-btn" aria-label="New reminder">
-          <svg class="ic"><use href="#i-plus"/></svg>
-        </button>
-        <input id="quick-add" placeholder="New Reminder" autocomplete="off" maxlength="500" aria-label="New reminder">
-      </div>
     </main>
+
+    <button id="fab-add" class="fab" aria-label="New reminder" title="New reminder">
+      <svg class="ic"><use href="#i-plus"/></svg>
+    </button>
   </div>
 
   <div id="editor" class="sheet" hidden>
     <div class="sheet-backdrop" data-close></div>
-    <form id="editor-form" class="sheet-card">
-      <header class="sheet-head">
-        <button type="button" class="text-btn" data-close>Cancel</button>
+    <form id="editor-form" class="sheet-card editor-card">
+      <header class="sheet-head editor-head">
+        <button type="button" class="round-btn" data-close aria-label="Cancel">
+          <svg class="ic"><use href="#i-x"/></svg>
+        </button>
         <span id="editor-heading">New Reminder</span>
-        <button type="submit" class="text-btn strong">Done</button>
+        <button type="submit" class="round-btn save" aria-label="Save reminder">
+          <svg class="ic"><use href="#i-check"/></svg>
+        </button>
       </header>
-      <div class="sheet-body">
-        <input id="e-title" class="e-title" placeholder="Title" maxlength="500" required autocomplete="off">
-        <textarea id="e-notes" class="e-notes" placeholder="Notes" rows="3" maxlength="5000"></textarea>
-        <div class="field">
-          <label for="e-list">List</label>
-          <select id="e-list"></select>
+      <div class="sheet-body editor-body">
+        <div class="editor-fields">
+          <input id="e-title" class="e-title" placeholder="Title or Describe Reminder" maxlength="500" required autocomplete="off">
+          <textarea id="e-notes" class="e-notes" placeholder="Notes &amp; URL" rows="2" maxlength="5000"></textarea>
         </div>
-        <div class="field">
-          <label for="e-date">Date</label>
-          <input id="e-date" type="date">
+
+        <div class="ed-section">
+          <div class="ed-section-label">Date &amp; Time</div>
+          <div class="ed-group">
+            <div class="ed-row">
+              <span class="ed-ic"><svg class="ic"><use href="#i-calendar"/></svg></span>
+              <label class="ed-label" for="e-date-on">Date</label>
+              <label class="ed-switch"><input id="e-date-on" type="checkbox"><span></span></label>
+            </div>
+            <div class="ed-subrow" id="e-date-row" hidden>
+              <input id="e-date" type="date" aria-label="Date">
+            </div>
+            <div class="ed-row">
+              <span class="ed-ic"><svg class="ic"><use href="#i-clock"/></svg></span>
+              <label class="ed-label" for="e-time-on">Time</label>
+              <label class="ed-switch"><input id="e-time-on" type="checkbox"><span></span></label>
+            </div>
+            <div class="ed-subrow" id="e-time-row" hidden>
+              <input id="e-time" type="time" aria-label="Time">
+            </div>
+            <div class="ed-row">
+              <span class="ed-ic"><svg class="ic"><use href="#i-bell"/></svg></span>
+              <label class="ed-label" for="e-urgent">Urgent</label>
+              <label class="ed-switch"><input id="e-urgent" type="checkbox"><span></span></label>
+            </div>
+          </div>
+          <p class="ed-hint">Urgent reminders are marked in red.</p>
         </div>
-        <div class="field">
-          <label for="e-time">Time</label>
-          <input id="e-time" type="time">
+
+        <div class="ed-section">
+          <div class="ed-section-label">More Options</div>
+          <div class="ed-group">
+            <div class="ed-row ed-list-row">
+              <span class="ed-list-ic" id="e-list-icon"><svg class="ic"><use href="#i-list"/></svg></span>
+              <span class="ed-label">List</span>
+              <span class="ed-value" id="e-list-value"></span>
+              <svg class="ic ed-chevron"><use href="#i-chevron"/></svg>
+              <select id="e-list" aria-label="List"></select>
+            </div>
+          </div>
         </div>
-        <div class="field switch-row" id="completed-row">
-          <label for="e-completed">Completed</label>
-          <input id="e-completed" type="checkbox">
+
+        <div class="ed-section" id="details-section" hidden>
+          <div class="ed-group">
+            <button type="button" class="ed-row ed-details-toggle" id="details-toggle" aria-expanded="false">
+              <span class="ed-ic"><svg class="ic"><use href="#i-info"/></svg></span>
+              <span class="ed-label">Details</span>
+              <svg class="ic ed-chevron"><use href="#i-chevron"/></svg>
+            </button>
+            <div id="details-panel" hidden>
+              <div class="ed-row" id="completed-row">
+                <span class="ed-label">Completed</span>
+                <label class="ed-switch"><input id="e-completed" type="checkbox"><span></span></label>
+              </div>
+              <div class="ed-subrow ed-delete-row">
+                <button type="button" id="e-delete" class="danger-btn" hidden>Delete Reminder</button>
+              </div>
+            </div>
+          </div>
         </div>
-        <button type="button" id="e-delete" class="danger-btn" hidden>Delete Reminder</button>
       </div>
     </form>
   </div>

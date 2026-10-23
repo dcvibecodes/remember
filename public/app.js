@@ -4,7 +4,7 @@ const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => Array.from(root.querySelectorAll(selector));
 const ICON = (name, cls = 'ic') => `<svg class="${cls}"><use href="#i-${name}"/></svg>`;
 
-const COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'brown', 'gray'];
+const COLORS = ['red', 'rose', 'orange', 'yellow', 'lime', 'green', 'teal', 'cyan', 'blue', 'indigo', 'purple', 'pink', 'brown', 'slate', 'gray'];
 const colorVar = (color) => `var(--list-${COLORS.includes(color) ? color : 'blue'})`;
 
 const state = {
@@ -180,6 +180,8 @@ async function boot() {
 
 function showAuth() {
   state.authenticated = false;
+  $$('.sheet').forEach((sheet) => { sheet.hidden = true; });
+  syncSheetState();
   $('#auth').hidden = false;
   $('#shell').hidden = true;
   $('#auth-confirm').hidden = !state.needsSetup;
@@ -251,6 +253,23 @@ async function loadState() {
   state.reminders = data.reminders || [];
   if (state.lastListId && !listById(state.lastListId)) {
     state.lastListId = state.lists[0] ? state.lists[0].id : null;
+  }
+}
+
+async function refreshState() {
+  const btn = $('#refresh-btn');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.classList.add('loading');
+  try {
+    await loadState();
+    render();
+    toast('Refreshed');
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove('loading');
   }
 }
 
@@ -336,6 +355,102 @@ function render() {
   renderMain();
 }
 
+let listDrag = null;
+
+function cleanupListDrag() {
+  if (!listDrag) return;
+  const drag = listDrag;
+  listDrag = null;
+  drag.grip.removeEventListener('pointermove', drag.onMove);
+  drag.grip.removeEventListener('pointerup', drag.onUp);
+  drag.grip.removeEventListener('pointercancel', drag.onCancel);
+  try { drag.grip.releasePointerCapture(drag.pointerId); } catch { /* already released */ }
+  drag.ghost.remove();
+  drag.row.classList.remove('dragging');
+  $$('#lists .list-row').forEach((node) => node.classList.remove('drop-before', 'drop-after'));
+  document.body.classList.remove('list-dragging');
+}
+
+function startListDrag(event, list, row, grip) {
+  if (event.button !== undefined && event.button !== 0) return;
+  if (state.lists.length < 2 || listDrag) return;
+  event.preventDefault();
+
+  const rect = row.getBoundingClientRect();
+  const ghost = row.cloneNode(true);
+  ghost.classList.add('list-drag-ghost');
+  ghost.classList.remove('active');
+  ghost.style.width = `${rect.width}px`;
+  ghost.style.height = `${rect.height}px`;
+  ghost.style.left = `${rect.left}px`;
+  ghost.style.top = `${rect.top}px`;
+  document.body.append(ghost);
+
+  row.classList.add('dragging');
+  document.body.classList.add('list-dragging');
+
+  const drag = {
+    list,
+    row,
+    grip,
+    ghost,
+    pointerId: event.pointerId,
+    startY: event.clientY,
+    startTop: rect.top,
+    height: rect.height,
+    targetIndex: state.lists.findIndex((item) => item.id === list.id),
+    onMove: null,
+    onUp: null,
+    onCancel: null,
+  };
+  listDrag = drag;
+
+  drag.onMove = (moveEvent) => {
+    if (!listDrag || moveEvent.pointerId !== drag.pointerId) return;
+    const dy = moveEvent.clientY - drag.startY;
+    drag.ghost.style.top = `${drag.startTop + dy}px`;
+    const center = drag.startTop + drag.height / 2 + dy;
+    const rows = $$('#lists .list-row').filter((node) => node !== row);
+    let index = rows.length;
+    for (let i = 0; i < rows.length; i += 1) {
+      const box = rows[i].getBoundingClientRect();
+      if (center < box.top + box.height / 2) {
+        index = i;
+        break;
+      }
+    }
+    drag.targetIndex = index;
+    $$('#lists .list-row').forEach((node) => node.classList.remove('drop-before', 'drop-after'));
+    if (index < rows.length) rows[index].classList.add('drop-before');
+    else if (rows.length) rows[rows.length - 1].classList.add('drop-after');
+  };
+
+  drag.onUp = (upEvent) => {
+    if (!listDrag || upEvent.pointerId !== drag.pointerId) return;
+    const index = drag.targetIndex;
+    const ids = state.lists.map((item) => item.id).filter((id) => id !== list.id);
+    ids.splice(Math.max(0, Math.min(index, ids.length)), 0, list.id);
+    const changed = ids.some((id, i) => id !== state.lists[i].id);
+    cleanupListDrag();
+    if (!changed) return;
+
+    state.lists = ids.map((id) => state.lists.find((item) => item.id === id));
+    renderSidebar();
+    api('/api/lists/order', { method: 'PUT', body: { ids } }).catch(async (err) => {
+      toast(err.message);
+      await loadState();
+      render();
+    });
+  };
+
+  drag.onCancel = () => cleanupListDrag();
+
+  grip.setPointerCapture(event.pointerId);
+  grip.addEventListener('pointermove', drag.onMove);
+  grip.addEventListener('pointerup', drag.onUp);
+  grip.addEventListener('pointercancel', drag.onCancel);
+}
+
 function renderSidebar() {
   const todayLimit = endOfToday();
   const todayCount = incompleteReminders()
@@ -366,6 +481,15 @@ function renderSidebar() {
       el('span', { class: 'list-name', text: list.name }),
       el('span', { class: 'badge', text: list.count ? String(list.count) : '' }),
     ]);
+    const grip = el('span', {
+      class: 'list-grip',
+      title: 'Drag to reorder',
+      'aria-hidden': 'true',
+      html: ICON('grip', 'ic'),
+    });
+    grip.addEventListener('pointerdown', (event) => startListDrag(event, list, row, grip));
+    grip.addEventListener('click', (event) => event.stopPropagation());
+    row.append(grip);
     wrap.append(row);
   }
 
@@ -377,7 +501,6 @@ function renderMain() {
   const content = $('#content');
   content.replaceChildren();
   $('#view-menu').hidden = true;
-  $('#add-bar').hidden = view === 'home' || view === 'completed';
 
   if (view === 'home') {
     $('#view-title').textContent = 'My Lists';
@@ -520,6 +643,12 @@ function reminderRow(reminder) {
       html: ICON('calendar', 'ic') + `<span>${escapeHtml(due.text)}</span>`,
     }));
   }
+  if (reminder.urgent) {
+    meta.append(el('span', {
+      class: 'meta-urgent',
+      html: ICON('bell', 'ic') + '<span>Urgent</span>',
+    }));
+  }
 
   const body = el('div', { class: 'reminder-body' }, [
     el('div', { class: 'reminder-title', text: reminder.title }),
@@ -569,40 +698,28 @@ async function toggleCompleted(reminder) {
   }
 }
 
-function targetListId() {
-  return defaultListId();
-}
-
-async function quickAdd() {
-  const input = $('#quick-add');
-  const title = input.value.trim();
-  if (!title) return;
-  const listId = targetListId();
-  if (!listId) {
-    toast('Create a list first');
-    openListSheet(null);
-    return;
-  }
-  try {
-    const body = { list_id: listId, title };
-    if (state.view === 'today') {
-      const due = new Date();
-      due.setHours(9, 0, 0, 0);
-      body.due_at = due.toISOString();
-      body.has_time = 0;
-    }
-    await api('/api/reminders', { method: 'POST', body });
-    rememberList(listId);
-    input.value = '';
-    await loadState();
-    render();
-    input.focus();
-  } catch (err) {
-    toast(err.message);
-  }
-}
-
 /* ---------------- Editor ---------------- */
+
+function syncDateTimeRows() {
+  if ($('#e-time-on').checked) $('#e-date-on').checked = true;
+  if (!$('#e-date-on').checked) $('#e-time-on').checked = false;
+  if ($('#e-date-on').checked && !$('#e-date').value) $('#e-date').value = localDateValue(new Date());
+  if ($('#e-time-on').checked && !$('#e-time').value) $('#e-time').value = '09:00';
+  $('#e-date-row').hidden = !$('#e-date-on').checked;
+  $('#e-time-row').hidden = !$('#e-time-on').checked;
+}
+
+function updateEditorListVisual() {
+  const list = listById(Number($('#e-list').value));
+  $('#e-list-icon').style.setProperty('--c', colorVar(list ? list.color : 'blue'));
+  $('#e-list-value').textContent = list ? list.name : '';
+}
+
+function resetDetails() {
+  $('#details-panel').hidden = true;
+  $('#details-toggle').classList.remove('open');
+  $('#details-toggle').setAttribute('aria-expanded', 'false');
+}
 
 function openEditor(id) {
   const reminder = id ? state.reminders.find((item) => item.id === id) : null;
@@ -623,19 +740,20 @@ function openEditor(id) {
     select.append(el('option', { value: String(list.id), text: list.name }));
   }
   select.value = String(reminder ? reminder.list_id : defaultListId());
+  updateEditorListVisual();
 
-  if (reminder && reminder.due_at) {
-    const due = new Date(reminder.due_at);
-    $('#e-date').value = localDateValue(due);
-    $('#e-time').value = reminder.has_time ? localTimeValue(due) : '';
-  } else {
-    $('#e-date').value = '';
-    $('#e-time').value = '';
-  }
+  const due = reminder && reminder.due_at ? new Date(reminder.due_at) : null;
+  $('#e-date-on').checked = Boolean(due);
+  $('#e-time-on').checked = Boolean(due && reminder.has_time);
+  $('#e-date').value = due ? localDateValue(due) : '';
+  $('#e-time').value = due && reminder.has_time ? localTimeValue(due) : '';
+  $('#e-urgent').checked = Boolean(reminder && reminder.urgent);
+  syncDateTimeRows();
 
   $('#e-completed').checked = Boolean(reminder && reminder.completed);
-  $('#completed-row').hidden = !reminder;
+  $('#details-section').hidden = false;
   $('#e-delete').hidden = !reminder;
+  resetDetails();
 
   openSheet('#editor');
   setTimeout(() => $('#e-title').focus(), 80);
@@ -647,14 +765,18 @@ async function saveEditor(event) {
   if (!title) return toast('Title is required');
 
   const listId = Number($('#e-list').value);
-  const dateValue = $('#e-date').value;
-  const timeValue = $('#e-time').value;
+  const dateOn = $('#e-date-on').checked;
+  const timeOn = $('#e-time-on').checked;
+  const dateValue = dateOn ? $('#e-date').value : '';
+  const timeValue = timeOn ? $('#e-time').value : '';
+  if (dateOn && !dateValue) return toast('Choose a date');
+  if (timeOn && !dateValue) return toast('Choose a date for the time');
 
   let dueAt = null;
   let hasTime = 0;
   if (dateValue) {
     const [year, month, day] = dateValue.split('-').map(Number);
-    if (timeValue) {
+    if (timeOn && timeValue) {
       const [hours, minutes] = timeValue.split(':').map(Number);
       dueAt = new Date(year, month - 1, day, hours, minutes).toISOString();
       hasTime = 1;
@@ -669,8 +791,9 @@ async function saveEditor(event) {
     list_id: listId,
     due_at: dueAt,
     has_time: hasTime,
+    urgent: $('#e-urgent').checked,
   };
-  if (state.editingId) body.completed = $('#e-completed').checked;
+  body.completed = $('#e-completed').checked;
 
   try {
     if (state.editingId) {
@@ -704,7 +827,7 @@ async function deleteReminder() {
 
 function openListSheet(list) {
   state.editingListId = list ? list.id : null;
-  state.selectedColor = list ? list.color : COLORS[5];
+  state.selectedColor = list ? list.color : 'blue';
   $('#list-heading').textContent = list ? 'Edit List' : 'New List';
   $('#l-name').value = list ? list.name : '';
   $('#l-delete').hidden = !list;
@@ -889,17 +1012,24 @@ async function sendTestNotification() {
 
 /* ---------------- Sheets ---------------- */
 
+function syncSheetState() {
+  document.body.classList.toggle('sheet-open', $$('.sheet').some((sheet) => !sheet.hidden));
+}
+
 function openSheet(selector) {
   $(selector).hidden = false;
+  syncSheetState();
 }
 
 function closeSheet(selector) {
   $(selector).hidden = true;
+  syncSheetState();
 }
 
 function closeTopSheet() {
   const open = $$('.sheet').filter((sheet) => !sheet.hidden);
   if (open.length) open[open.length - 1].hidden = true;
+  syncSheetState();
   return open.length > 0;
 }
 
@@ -983,16 +1113,8 @@ $('#notify-enable').addEventListener('click', enableNotifications);
 $('#notify-disable').addEventListener('click', disableNotifications);
 $('#notify-test').addEventListener('click', sendTestNotification);
 
-$('#add-btn').addEventListener('click', () => openEditor(null));
-$('#quick-add').addEventListener('keydown', (event) => {
-  if (event.key === 'Enter') {
-    event.preventDefault();
-    quickAdd();
-  } else if (event.key === 'Escape') {
-    event.target.value = '';
-    event.target.blur();
-  }
-});
+$('#fab-add').addEventListener('click', () => openEditor(null));
+$('#refresh-btn').addEventListener('click', refreshState);
 
 function setSearch(value, source) {
   state.search = value.trim();
@@ -1020,8 +1142,28 @@ $('#search-form').addEventListener('submit', (event) => {
 
 $('#editor-form').addEventListener('submit', saveEditor);
 $('#e-delete').addEventListener('click', deleteReminder);
+$('#e-date-on').addEventListener('change', syncDateTimeRows);
+$('#e-time-on').addEventListener('change', syncDateTimeRows);
 $('#e-date').addEventListener('change', () => {
-  if (!$('#e-date').value) $('#e-time').value = '';
+  if (!$('#e-date').value) {
+    $('#e-date-on').checked = false;
+    $('#e-time-on').checked = false;
+    syncDateTimeRows();
+  }
+});
+$('#e-time').addEventListener('change', () => {
+  if (!$('#e-time').value) {
+    $('#e-time-on').checked = false;
+    syncDateTimeRows();
+  }
+});
+$('#e-list').addEventListener('change', updateEditorListVisual);
+$('#details-toggle').addEventListener('click', () => {
+  const panel = $('#details-panel');
+  const open = panel.hidden;
+  panel.hidden = !open;
+  $('#details-toggle').classList.toggle('open', open);
+  $('#details-toggle').setAttribute('aria-expanded', String(open));
 });
 $('#list-form').addEventListener('submit', saveList);
 $('#l-delete').addEventListener('click', deleteList);
@@ -1030,7 +1172,10 @@ document.addEventListener('click', (event) => {
   const closer = event.target.closest('[data-close]');
   if (closer) {
     const sheet = closer.closest('.sheet');
-    if (sheet) sheet.hidden = true;
+    if (sheet) {
+      sheet.hidden = true;
+      syncSheetState();
+    }
   }
 });
 
@@ -1050,8 +1195,7 @@ document.addEventListener('keydown', (event) => {
     target.focus();
   } else if (event.key === 'n') {
     event.preventDefault();
-    if ($('#add-bar').hidden) openEditor(null);
-    else $('#quick-add').focus();
+    openEditor(null);
   }
 });
 

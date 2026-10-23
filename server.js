@@ -17,7 +17,7 @@ const VERSION = require('./package.json').version;
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SESSION_SECRET_KEY = 'session_secret';
 const DEFAULT_LIST_COLOR = 'blue';
-const LIST_COLORS = new Set(['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'brown', 'gray']);
+const LIST_COLORS = new Set(['red', 'rose', 'orange', 'yellow', 'lime', 'green', 'teal', 'cyan', 'blue', 'indigo', 'purple', 'pink', 'brown', 'slate', 'gray']);
 
 const app = express();
 app.set('trust proxy', 1);
@@ -209,7 +209,7 @@ async function main() {
       FROM lists l ORDER BY l.sort_order, l.id
     `);
     const reminders = await db.all(`
-      SELECT id, list_id, title, notes, due_at, has_time, completed, completed_at, sort_order, created_at
+      SELECT id, list_id, title, notes, due_at, has_time, completed, completed_at, urgent, sort_order, created_at
       FROM reminders
       WHERE completed = 0 OR completed_at IS NULL OR completed_at >= ?
       ORDER BY sort_order, id
@@ -226,6 +226,26 @@ async function main() {
       [name, validColor(req.body.color), max.s + 1, new Date().toISOString()]
     );
     res.status(201).json({ id: result.lastID });
+  });
+
+  app.put('/api/lists/order', async (req, res) => {
+    const ids = Array.isArray(req.body.ids) ? req.body.ids.map((value) => Number(value)) : [];
+    if (!ids.length || ids.some((id) => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
+      return res.status(400).json({ error: 'Invalid list order' });
+    }
+    const existing = await db.all('SELECT id FROM lists');
+    const existingIds = new Set(existing.map((row) => row.id));
+    if (ids.length !== existingIds.size || ids.some((id) => !existingIds.has(id))) {
+      return res.status(400).json({ error: 'List order is out of date' });
+    }
+    const cases = ids.map((id, index) => `WHEN ${id} THEN ${index}`).join(' ');
+    try {
+      await db.run(`UPDATE lists SET sort_order = CASE id ${cases} END WHERE id IN (${ids.join(', ')})`);
+      res.json({ ok: true });
+    } catch (err) {
+      console.error('List reorder failed:', err.message);
+      res.status(500).json({ error: 'Could not save list order' });
+    }
   });
 
   app.patch('/api/lists/:id', async (req, res) => {
@@ -270,8 +290,11 @@ async function main() {
     const dueAt = normalizeDate(req.body.due_at);
     if (dueAt === undefined) return res.status(400).json({ error: 'Invalid date' });
     const hasTime = dueAt && req.body.has_time ? 1 : 0;
+    const urgent = req.body.urgent ? 1 : 0;
+    const completed = req.body.completed ? 1 : 0;
     const now = new Date().toISOString();
-    const notifiedAt = dueAt && !hasTime && new Date(dueAt) <= new Date() ? now : null;
+    const completedAt = completed ? now : null;
+    const notifiedAt = !completed && dueAt && !hasTime && new Date(dueAt) <= new Date() ? now : null;
     const max = await db.get(
       'SELECT COALESCE(MAX(sort_order), -1) AS s FROM reminders WHERE list_id = ?',
       [listId]
@@ -279,9 +302,9 @@ async function main() {
 
     const result = await db.run(`
       INSERT INTO reminders
-        (list_id, title, notes, due_at, has_time, completed, notified_at, sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
-    `, [listId, title, text(req.body.notes, 5000), dueAt, hasTime, notifiedAt, max.s + 1, now, now]);
+        (list_id, title, notes, due_at, has_time, completed, completed_at, urgent, notified_at, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `, [listId, title, text(req.body.notes, 5000), dueAt, hasTime, completed, completedAt, urgent, notifiedAt, max.s + 1, now, now]);
 
     res.status(201).json({ id: result.lastID });
   });
@@ -327,6 +350,11 @@ async function main() {
       fields.push('notified_at = ?');
       params.push(dueAt && !hasTime && new Date(dueAt) <= new Date() ? new Date().toISOString() : null);
       dueChanged = true;
+    }
+
+    if (req.body.urgent !== undefined) {
+      fields.push('urgent = ?');
+      params.push(req.body.urgent ? 1 : 0);
     }
 
     if (req.body.completed !== undefined) {

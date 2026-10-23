@@ -64,6 +64,10 @@ async function init() {
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
   )`);
+  const reminderColumns = await all('PRAGMA table_info(reminders)');
+  if (!reminderColumns.some((column) => column.name === 'urgent')) {
+    await run('ALTER TABLE reminders ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0');
+  }
   await run(`UPDATE lists SET color = CASE color
     WHEN '#FF3B30' THEN 'red'
     WHEN '#FF9500' THEN 'orange'
@@ -72,9 +76,13 @@ async function init() {
     WHEN '#00C7BE' THEN 'teal'
     WHEN '#30B0C7' THEN 'blue'
     WHEN '#007AFF' THEN 'blue'
-    WHEN '#5856D6' THEN 'purple'
+    WHEN '#5856D6' THEN 'indigo'
+    WHEN '#5E5CE6' THEN 'indigo'
     WHEN '#AF52DE' THEN 'purple'
-    WHEN '#FF2D55' THEN 'red'
+    WHEN '#BF5AF2' THEN 'purple'
+    WHEN '#FF2D55' THEN 'pink'
+    WHEN '#5AC8FA' THEN 'cyan'
+    WHEN '#64D2FF' THEN 'cyan'
     WHEN '#A2845E' THEN 'brown'
     WHEN '#8E8E93' THEN 'gray'
     ELSE 'blue' END
