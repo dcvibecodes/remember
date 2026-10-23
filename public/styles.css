@@ -1863,22 +1863,21 @@ body.sheet-open .sidebar {
 
   /* Mobile home is the full-screen list panel: search, smart views, My Lists,
      then the lists. The footer actions live in the hamburger menu. */
-  body[data-screen="home"] .sidebar { display: flex; overflow: hidden; }
+  body[data-screen="home"] .sidebar { display: flex; padding-top: 0; }
   body[data-screen="home"] .main { display: none; }
   body[data-screen="detail"] .sidebar { display: none; }
   body[data-screen="detail"] .main { display: flex; }
 
-  /* Keep the floating add button below the scrolling list area, not on top
-     of the last list row. */
-  body[data-screen="home"] #lists {
-    flex: 1 1 auto;
-    min-height: 0;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    scrollbar-width: none;
-    padding-bottom: 8px;
+  /* Only the header + search stay frozen; everything below scrolls as one
+     page (no nested list scroller). The top padding lives on the sticky
+     wrapper so stuck and unstuck geometry match exactly. */
+  .sidebar-top {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    background: var(--surface);
+    padding-top: calc(14px + env(safe-area-inset-top));
   }
-  body[data-screen="home"] #lists::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
   .sidebar .sidebar-foot { display: none; }
 
