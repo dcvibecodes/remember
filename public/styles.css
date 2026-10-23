@@ -782,8 +782,18 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .row-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
   margin-top: 6px;
+}
+
+.row-actions-label {
+  flex-basis: 100%;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
 }
 
 .mini-btn {
@@ -1542,6 +1552,19 @@ body.sheet-open .sidebar {
 
 .theme-option-btn:hover { color: var(--text); }
 .theme-option-btn.active { background: var(--accent); color: var(--accent-contrast); }
+
+.settings-note {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--line));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+
+.settings-note strong { color: var(--text); }
 
 .settings-row {
   display: flex;

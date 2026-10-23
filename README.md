@@ -12,7 +12,7 @@ Live: https://re.example.com
 - Natural-language quick add: "call mom tomorrow 6pm" pre-fills the editor with a removable preview.
 - Smart lists: Today (overdue pinned), Scheduled (grouped by date), All, Flagged (urgent), Completed.
 - Time models: fixed instant, floating wall-clock (default; follows the device's last-synced zone), or zone-anchored (with a styled Time zone picker in the editor). Settings has a default model and default zone; changing them affects new reminders only, never existing ones.
-- Snooze (in-app button + notification actions where supported), **Next occurrence** for due repeating reminders, opt-in re-push with quiet hours.
+- Snooze (in-app button + notification actions where supported). Due rows group their actions under a clear **Snooze until** label: 1 hour, Today/Tomorrow, or Next occurrence for repeating reminders. Opt-in re-push with quiet hours.
 - Token API so external agents can list, add, and complete reminders without a browser.
 - Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
 - Deleting is inline (no browser dialogs): on touch, swipe any row left — including completed rows — to reveal the red Delete action (centered label), tap it once for “Confirm?”, tap again to delete; swipe right closes the reveal. On the web there is no swipe; hover the row and click the ×, then “Confirm?”. The card slides away when deleted.
@@ -33,7 +33,7 @@ Urgent is a visual flag only: it marks the reminder in red but does not change n
 - **Floating** — stores a wall-clock time in the device's last-synced zone (“6pm wherever I am”). It re-syncs when the app opens in a new zone; the server cannot detect travel while the app is closed.
 - **Anchored** — stores a wall-clock time in a named zone (“6pm Asia/Kolkata”) and keeps that zone's schedule regardless of the device.
 
-The card shows “Floating” without a zone (the editor discloses the last synced zone) and “Anchored · zone” when a specific zone is the rule. Changing the default model/zone in Settings only affects new reminders.
+The card shows “Floating” without a zone (the editor discloses the last synced zone) and “Anchored · zone” when a specific zone is the rule. Changing the default model/zone in Settings only affects new reminders; the Settings sheet states this in a prominent notice and confirms it again after saving. Existing reminders are never migrated.
 
 ## Stack
 
@@ -121,7 +121,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.8.0
+1.8.1
 
 ## License
 

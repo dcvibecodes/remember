@@ -1206,7 +1206,7 @@ async function skipToNext(reminder) {
     await loadState();
     render();
     const next = new Date(result.nextDue);
-    toast(`Next: ${next.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`);
+    toast(`Snoozed until next occurrence: ${next.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })}`);
   } catch (err) {
     toast(err.message);
   }
@@ -1220,7 +1220,7 @@ async function rescheduleRow(reminder, date) {
     });
     await loadState();
     render();
-    toast(date === 'today' ? 'Moved to today' : 'Moved to tomorrow');
+    toast(date === 'today' ? 'Snoozed until today' : 'Snoozed until tomorrow');
   } catch (err) {
     toast(err.message);
   }
@@ -1300,8 +1300,8 @@ function reminderRow(reminder, options = {}) {
     actions.push(el('button', {
       type: 'button',
       class: 'mini-btn',
-      text: 'Snooze 1h',
-      'aria-label': `Snooze ${reminder.title} for 1 hour`,
+      text: '1 hour',
+      'aria-label': `Snooze ${reminder.title} until 1 hour from now`,
       onclick: (event) => { event.stopPropagation(); snoozeRow(reminder, 1); },
     }));
     if (recurring) {
@@ -1309,8 +1309,8 @@ function reminderRow(reminder, options = {}) {
         type: 'button',
         class: 'mini-btn',
         text: 'Next occurrence',
-        title: 'Skip this occurrence and move to the next one',
-        'aria-label': `Skip ${reminder.title} to the next occurrence`,
+        title: 'Snooze until the next scheduled occurrence',
+        'aria-label': `Snooze ${reminder.title} until the next occurrence`,
         onclick: (event) => { event.stopPropagation(); skipToNext(reminder); },
       }));
     }
@@ -1320,7 +1320,7 @@ function reminderRow(reminder, options = {}) {
       type: 'button',
       class: 'mini-btn',
       text: 'Today',
-      'aria-label': `Move ${reminder.title} to today`,
+      'aria-label': `Snooze ${reminder.title} until today`,
       onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'today'); },
     }));
   }
@@ -1329,11 +1329,16 @@ function reminderRow(reminder, options = {}) {
       type: 'button',
       class: 'mini-btn',
       text: 'Tomorrow',
-      'aria-label': `Move ${reminder.title} to tomorrow`,
+      'aria-label': `Snooze ${reminder.title} until tomorrow`,
       onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'tomorrow'); },
     }));
   }
-  if (actions.length) body.append(el('div', { class: 'row-actions' }, actions));
+  if (actions.length) {
+    body.append(el('div', { class: 'row-actions', 'aria-label': 'Snooze until' }, [
+      el('span', { class: 'row-actions-label', text: 'Snooze until' }),
+      ...actions,
+    ]));
+  }
 
   const check = el('button', {
     class: 'check',
@@ -2424,7 +2429,7 @@ async function saveAppSettings() {
       },
     });
     state.settings = result.settings || state.settings;
-    settingsMessage('Settings saved', true);
+    settingsMessage('Saved. Applies to new reminders only — existing reminders were not changed.', true);
   } catch (err) {
     settingsMessage(err.message);
   }
