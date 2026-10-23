@@ -43,6 +43,12 @@ async function init() {
     password_hash TEXT NOT NULL,
     created_at TEXT NOT NULL
   )`);
+  await run(`CREATE TABLE IF NOT EXISTS sessions (
+    sid TEXT PRIMARY KEY,
+    sess TEXT NOT NULL,
+    expires INTEGER NOT NULL
+  )`);
+  await run('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires)');
   await run(`CREATE TABLE IF NOT EXISTS lists (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,

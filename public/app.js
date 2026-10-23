@@ -257,10 +257,12 @@ async function loadState() {
 }
 
 async function refreshState() {
-  const btn = $('#refresh-btn');
-  if (btn.disabled) return;
-  btn.disabled = true;
-  btn.classList.add('loading');
+  const buttons = $$('.refresh-btn');
+  if (buttons.some((btn) => btn.disabled)) return;
+  buttons.forEach((btn) => {
+    btn.disabled = true;
+    btn.classList.add('loading');
+  });
   try {
     await loadState();
     render();
@@ -268,8 +270,10 @@ async function refreshState() {
   } catch (err) {
     toast(err.message);
   } finally {
-    btn.disabled = false;
-    btn.classList.remove('loading');
+    buttons.forEach((btn) => {
+      btn.disabled = false;
+      btn.classList.remove('loading');
+    });
   }
 }
 
@@ -624,6 +628,70 @@ function renderHome(content) {
   content.append(grid);
 }
 
+const URL_PATTERN = /https?:\/\/[^\s]+/gi;
+
+function cleanUrl(value) {
+  return value.replace(/[),.;!?]+$/, '');
+}
+
+function appendLinkedText(parent, value) {
+  const text = String(value);
+  let last = 0;
+  for (const match of text.matchAll(URL_PATTERN)) {
+    const raw = match[0];
+    const url = cleanUrl(raw);
+    const trailing = raw.slice(url.length);
+    if (match.index > last) parent.append(document.createTextNode(text.slice(last, match.index)));
+    if (url) {
+      parent.append(el('a', {
+        href: url,
+        target: '_blank',
+        rel: 'noopener noreferrer',
+        text: url,
+        onclick: (event) => event.stopPropagation(),
+      }));
+    }
+    if (trailing) parent.append(document.createTextNode(trailing));
+    last = match.index + raw.length;
+  }
+  if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
+}
+
+function renderEditorLinks() {
+  const wrap = $('#e-notes-links');
+  if (!wrap) return;
+  const urls = [...$('#e-notes').value.matchAll(URL_PATTERN)]
+    .map((match) => cleanUrl(match[0]))
+    .filter(Boolean);
+  const unique = [...new Set(urls)];
+  wrap.replaceChildren();
+  if (!unique.length) {
+    wrap.hidden = true;
+    return;
+  }
+  for (const url of unique) {
+    wrap.append(el('a', {
+      href: url,
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      text: url,
+    }));
+  }
+  wrap.hidden = false;
+}
+
+function autoGrowTitle() {
+  const title = $('#e-title');
+  title.style.height = 'auto';
+  title.style.height = `${title.scrollHeight}px`;
+}
+
+function autoGrowNotes() {
+  const notes = $('#e-notes');
+  notes.style.height = 'auto';
+  notes.style.height = `${notes.scrollHeight}px`;
+}
+
 function reminderRow(reminder) {
   const list = listById(reminder.list_id);
   const color = colorVar(list ? list.color : 'blue');
@@ -655,7 +723,9 @@ function reminderRow(reminder) {
     meta,
   ]);
   if (reminder.notes) {
-    body.append(el('div', { class: 'reminder-notes', text: reminder.notes.split('\n')[0] }));
+    const notes = el('div', { class: 'reminder-notes' });
+    appendLinkedText(notes, reminder.notes.split('\n')[0]);
+    body.append(notes);
   }
 
   const check = el('button', {
@@ -715,12 +785,6 @@ function updateEditorListVisual() {
   $('#e-list-value').textContent = list ? list.name : '';
 }
 
-function resetDetails() {
-  $('#details-panel').hidden = true;
-  $('#details-toggle').classList.remove('open');
-  $('#details-toggle').setAttribute('aria-expanded', 'false');
-}
-
 function openEditor(id) {
   const reminder = id ? state.reminders.find((item) => item.id === id) : null;
   if (!state.lists.length) {
@@ -750,13 +814,18 @@ function openEditor(id) {
   $('#e-urgent').checked = Boolean(reminder && reminder.urgent);
   syncDateTimeRows();
 
-  $('#e-completed').checked = Boolean(reminder && reminder.completed);
-  $('#details-section').hidden = false;
-  $('#e-delete').hidden = !reminder;
-  resetDetails();
+  const editing = Boolean(reminder);
+  $('#e-completed').checked = editing && reminder.completed;
+  $('#completed-row').hidden = !editing;
+  $('#e-delete').hidden = !editing;
+  renderEditorLinks();
 
   openSheet('#editor');
-  setTimeout(() => $('#e-title').focus(), 80);
+  setTimeout(() => {
+    autoGrowTitle();
+    autoGrowNotes();
+    $('#e-title').focus();
+  }, 80);
 }
 
 async function saveEditor(event) {
@@ -793,7 +862,7 @@ async function saveEditor(event) {
     has_time: hasTime,
     urgent: $('#e-urgent').checked,
   };
-  body.completed = $('#e-completed').checked;
+  if (state.editingId) body.completed = $('#e-completed').checked;
 
   try {
     if (state.editingId) {
@@ -1099,7 +1168,6 @@ $('#smart-nav').addEventListener('click', (event) => {
   if (row) go(row.dataset.view);
 });
 
-$('#new-list').addEventListener('click', () => openListSheet(null));
 $('#new-list-2').addEventListener('click', () => openListSheet(null));
 $('#back-btn').addEventListener('click', () => go('home'));
 $('#logout-btn').addEventListener('click', logout);
@@ -1114,7 +1182,7 @@ $('#notify-disable').addEventListener('click', disableNotifications);
 $('#notify-test').addEventListener('click', sendTestNotification);
 
 $('#fab-add').addEventListener('click', () => openEditor(null));
-$('#refresh-btn').addEventListener('click', refreshState);
+$$('.refresh-btn').forEach((btn) => btn.addEventListener('click', refreshState));
 
 function setSearch(value, source) {
   state.search = value.trim();
@@ -1158,12 +1226,10 @@ $('#e-time').addEventListener('change', () => {
   }
 });
 $('#e-list').addEventListener('change', updateEditorListVisual);
-$('#details-toggle').addEventListener('click', () => {
-  const panel = $('#details-panel');
-  const open = panel.hidden;
-  panel.hidden = !open;
-  $('#details-toggle').classList.toggle('open', open);
-  $('#details-toggle').setAttribute('aria-expanded', String(open));
+$('#e-title').addEventListener('input', autoGrowTitle);
+$('#e-notes').addEventListener('input', () => {
+  autoGrowNotes();
+  renderEditorLinks();
 });
 $('#list-form').addEventListener('submit', saveList);
 $('#l-delete').addEventListener('click', deleteList);

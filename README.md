@@ -50,6 +50,7 @@ Your data lives in `data/remember.db`. It is gitignored because it contains the 
 ```text
 server.js                 Express app, auth, REST API, scheduler
 db.js                     SQLite connection and migrations
+session-store.js          SQLite-backed express-session store
 push.js                   Web Push / VAPID setup
 public/index.html         App shell and SVG icons
 public/app.js             Hash router, rendering, editor, drag reorder
@@ -88,11 +89,11 @@ npm start
 - Back up `data/remember.db` regularly.
 - Never commit `data/` or replace the database with a fresh copy during an update.
 
-Sessions are stored in memory, so restarting the process logs you out. The session secret and VAPID keys persist in the `settings` table.
+Sessions are stored in SQLite, so refreshing the page or restarting the process keeps you signed in. The session secret and VAPID keys persist in the `settings` table.
 
 ## Version
 
-1.1.1
+1.2.0
 
 ## License
 

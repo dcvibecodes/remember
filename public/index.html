@@ -86,11 +86,6 @@
     <symbol id="i-list" viewBox="0 0 24 24">
       <path d="M5 7h14M5 12h14M5 17h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
     </symbol>
-    <symbol id="i-info" viewBox="0 0 24 24">
-      <circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.8"/>
-      <path d="M12 11v5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-      <circle cx="12" cy="8" r="1.15" fill="currentColor"/>
-    </symbol>
     <symbol id="i-grip" viewBox="0 0 24 24">
       <path d="M5 8h14M5 12h14M5 16h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
     </symbol>
@@ -114,8 +109,8 @@
     <aside class="sidebar">
       <div class="sidebar-head">
         <h1 class="wordmark">Remember</h1>
-        <button id="new-list" class="icon-btn" title="New list" aria-label="New list">
-          <svg class="ic"><use href="#i-plus"/></svg>
+        <button id="refresh-btn-side" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
+          <svg class="ic"><use href="#i-refresh"/></svg>
         </button>
       </div>
 
@@ -176,7 +171,7 @@
           <span id="view-count" class="view-count"></span>
         </div>
         <button id="view-menu" class="icon-btn" aria-label="List options" hidden>&#8943;</button>
-        <button id="refresh-btn" class="icon-btn" title="Refresh reminders" aria-label="Refresh reminders">
+        <button id="refresh-btn" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
           <svg class="ic"><use href="#i-refresh"/></svg>
         </button>
       </header>
@@ -208,8 +203,9 @@
       </header>
       <div class="sheet-body editor-body">
         <div class="editor-fields">
-          <input id="e-title" class="e-title" placeholder="Title or Describe Reminder" maxlength="500" required autocomplete="off">
+          <textarea id="e-title" class="e-title" placeholder="Title or Describe Reminder" rows="1" maxlength="500" required autocomplete="off"></textarea>
           <textarea id="e-notes" class="e-notes" placeholder="Notes &amp; URL" rows="2" maxlength="5000"></textarea>
+          <div id="e-notes-links" class="ed-note-links" aria-label="Links in notes" hidden></div>
         </div>
 
         <div class="ed-section">
@@ -250,27 +246,15 @@
               <svg class="ic ed-chevron"><use href="#i-chevron"/></svg>
               <select id="e-list" aria-label="List"></select>
             </div>
-          </div>
-        </div>
-
-        <div class="ed-section" id="details-section" hidden>
-          <div class="ed-group">
-            <button type="button" class="ed-row ed-details-toggle" id="details-toggle" aria-expanded="false">
-              <span class="ed-ic"><svg class="ic"><use href="#i-info"/></svg></span>
-              <span class="ed-label">Details</span>
-              <svg class="ic ed-chevron"><use href="#i-chevron"/></svg>
-            </button>
-            <div id="details-panel" hidden>
-              <div class="ed-row" id="completed-row">
-                <span class="ed-label">Completed</span>
-                <label class="ed-switch"><input id="e-completed" type="checkbox"><span></span></label>
-              </div>
-              <div class="ed-subrow ed-delete-row">
-                <button type="button" id="e-delete" class="danger-btn" hidden>Delete Reminder</button>
-              </div>
+            <div class="ed-row" id="completed-row" hidden>
+              <span class="ed-ic"><svg class="ic"><use href="#i-done"/></svg></span>
+              <span class="ed-label">Completed</span>
+              <label class="ed-switch"><input id="e-completed" type="checkbox"><span></span></label>
             </div>
           </div>
         </div>
+
+        <button type="button" id="e-delete" class="danger-btn editor-delete" hidden>Delete Reminder</button>
       </div>
     </form>
   </div>

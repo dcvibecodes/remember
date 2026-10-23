@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 
 const db = require('./db');
 const push = require('./push');
+const SQLiteSessionStore = require('./session-store');
 
 const PORT = Number(process.env.PORT) || 3006;
 const HOST = process.env.HOST || '127.0.0.1';
@@ -68,6 +69,12 @@ function regenerate(req) {
   });
 }
 
+function saveSession(req) {
+  return new Promise((resolve, reject) => {
+    req.session.save((err) => (err ? reject(err) : resolve()));
+  });
+}
+
 async function main() {
   await db.init();
   await push.init();
@@ -81,12 +88,13 @@ async function main() {
   app.use(session({
     name: 'remember.sid',
     secret,
+    store: new SQLiteSessionStore(),
     resave: false,
     saveUninitialized: false,
     rolling: true,
     cookie: {
       httpOnly: true,
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge: 30 * 24 * 60 * 60 * 1000,
     },
   }));
@@ -146,6 +154,7 @@ async function main() {
 
     await regenerate(req);
     req.session.userId = 1;
+    await saveSession(req);
     res.json({ ok: true });
   });
 
@@ -158,6 +167,7 @@ async function main() {
 
     await regenerate(req);
     req.session.userId = user.id;
+    await saveSession(req);
     res.json({ ok: true });
   });
 
