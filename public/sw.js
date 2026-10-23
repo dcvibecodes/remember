@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'remember-v1.2.0';
+const CACHE = 'remember-v1.3.0';
 const ASSETS = [
   '/',
   '/index.html',
@@ -57,6 +57,20 @@ self.addEventListener('fetch', (event) => {
   );
 });
 
+function actionsSupported() {
+  // Notification action buttons only exist on some platforms (Chrome on
+  // desktop/Android). iOS PWAs do not reliably support them, so the in-app
+  // Snooze/Complete buttons are the always-available path and these are a
+  // progressive enhancement, never a requirement.
+  try {
+    return typeof Notification !== 'undefined'
+      && Notification.prototype
+      && 'actions' in Notification.prototype;
+  } catch {
+    return false;
+  }
+}
+
 self.addEventListener('push', (event) => {
   let data = {};
   if (event.data) {
@@ -68,21 +82,54 @@ self.addEventListener('push', (event) => {
   }
 
   const tag = data.tag || 'remember';
-  event.waitUntil(
-    self.registration.showNotification(data.title || 'Remember', {
-      body: data.body || 'You have a reminder due.',
-      icon: '/icons/icon-192.png',
-      badge: '/icons/icon-192.png',
-      tag,
-      renotify: true,
-      data: { url: data.url || '/#/today' },
-    })
-  );
+  const options = {
+    body: data.body || 'You have a reminder due.',
+    icon: '/icons/icon-192.png',
+    badge: '/icons/icon-192.png',
+    tag,
+    renotify: true,
+    data: {
+      url: data.url || '/#/today',
+      reminderId: data.reminderId || null,
+      occurrence: data.occurrence || null,
+      sigComplete: data.sigComplete || null,
+      sigSnooze: data.sigSnooze || null,
+    },
+  };
+  if (data.reminderId && data.occurrence && actionsSupported()) {
+    options.actions = [
+      { action: 'complete', title: 'Complete' },
+      { action: 'snooze', title: 'Snooze 1 hour' },
+    ];
+  }
+  event.waitUntil(self.registration.showNotification(data.title || 'Remember', options));
 });
 
 self.addEventListener('notificationclick', (event) => {
+  const data = event.notification.data || {};
+  // Action buttons post a signed request: the service worker holds no
+  // session or CSRF token, so the signature (bound to reminder + scheduled
+  // occurrence + action) is the authorization.
+  if ((event.action === 'complete' || event.action === 'snooze') && data.reminderId && data.occurrence) {
+    const sig = event.action === 'complete' ? data.sigComplete : data.sigSnooze;
+    event.notification.close();
+    event.waitUntil(
+      fetch('/api/push/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reminder_id: data.reminderId,
+          occurrence_at: data.occurrence,
+          action: event.action,
+          sig,
+        }),
+      }).catch(() => {})
+    );
+    return;
+  }
+
   event.notification.close();
-  const target = (event.notification.data && event.notification.data.url) || '/#/today';
+  const target = data.url || '/#/today';
 
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });

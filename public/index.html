@@ -89,6 +89,14 @@
     <symbol id="i-grip" viewBox="0 0 24 24">
       <path d="M5 8h14M5 12h14M5 16h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
     </symbol>
+    <symbol id="i-flag" viewBox="0 0 24 24">
+      <path d="M6 21V4" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/>
+      <path d="M6 4.5c4-2.2 7 2.2 12 0v9c-5 2.2-8-2.2-12 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="i-repeat" viewBox="0 0 24 24">
+      <path d="M4 12a8 8 0 0114-5l2 2M20 12a8 8 0 01-14 5l-2-2" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M20 4v5h-5M4 20v-5h5" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
   </svg>
 
   <div id="auth" class="auth" hidden>
@@ -125,10 +133,20 @@
           <span class="nav-label">Today</span>
           <span class="badge" id="count-today"></span>
         </button>
+        <button class="nav-row" data-view="scheduled">
+          <span class="nav-ic scheduled"><svg class="ic"><use href="#i-clock"/></svg></span>
+          <span class="nav-label">Scheduled</span>
+          <span class="badge" id="count-scheduled"></span>
+        </button>
         <button class="nav-row" data-view="all">
           <span class="nav-ic all"><svg class="ic"><use href="#i-all"/></svg></span>
           <span class="nav-label">All</span>
           <span class="badge" id="count-all"></span>
+        </button>
+        <button class="nav-row" data-view="flagged">
+          <span class="nav-ic flagged"><svg class="ic"><use href="#i-flag"/></svg></span>
+          <span class="nav-label">Flagged</span>
+          <span class="badge" id="count-flagged"></span>
         </button>
         <button class="nav-row" data-view="completed">
           <span class="nav-ic done"><svg class="ic"><use href="#i-done"/></svg></span>
@@ -204,6 +222,10 @@
       <div class="sheet-body editor-body">
         <div class="editor-fields">
           <textarea id="e-title" class="e-title" placeholder="Title or Describe Reminder" rows="1" maxlength="500" required autocomplete="off"></textarea>
+          <button type="button" id="e-parse-chip" class="parse-chip" hidden>
+            <span id="e-parse-text"></span>
+            <svg class="ic"><use href="#i-x"/></svg>
+          </button>
           <textarea id="e-notes" class="e-notes" placeholder="Notes &amp; URL" rows="2" maxlength="5000"></textarea>
           <div id="e-notes-links" class="ed-note-links" aria-label="Links in notes" hidden></div>
         </div>
@@ -232,8 +254,54 @@
               <label class="ed-label" for="e-urgent">Urgent</label>
               <label class="ed-switch"><input id="e-urgent" type="checkbox"><span></span></label>
             </div>
+            <div class="ed-row ed-select-row">
+              <span class="ed-ic"><svg class="ic"><use href="#i-repeat"/></svg></span>
+              <span class="ed-label">Repeat</span>
+              <span class="ed-value" id="e-repeat-value">Never</span>
+              <select id="e-repeat" aria-label="Repeat">
+                <option value="none">Never</option>
+                <option value="daily">Daily</option>
+                <option value="weekly">Weekly</option>
+                <option value="monthly">Monthly</option>
+                <option value="yearly">Yearly</option>
+                <option value="custom">Custom…</option>
+              </select>
+            </div>
+            <div class="ed-subrow ed-repeat-custom" id="e-repeat-custom" hidden>
+              <span>Every</span>
+              <input id="e-repeat-interval" type="number" min="1" max="366" value="2" aria-label="Repeat interval">
+              <select id="e-repeat-unit" aria-label="Repeat unit">
+                <option value="days">days</option>
+                <option value="weeks">weeks</option>
+                <option value="months">months</option>
+              </select>
+            </div>
+            <div class="ed-row" id="snooze-row" hidden>
+              <span class="ed-ic"><svg class="ic"><use href="#i-clock"/></svg></span>
+              <span class="ed-label" id="e-snooze-label">Snooze</span>
+              <button type="button" id="e-snooze-btn" class="mini-btn">Snooze 1h</button>
+            </div>
           </div>
           <p class="ed-hint">Urgent reminders are marked in red.</p>
+        </div>
+
+        <div class="ed-section" id="series-section" hidden>
+          <div class="ed-section-label">Repeating series</div>
+          <div class="ed-group">
+            <div class="ed-row">
+              <span class="ed-label">Apply changes to</span>
+              <div class="segmented" role="group" aria-label="Edit scope">
+                <button type="button" id="scope-occurrence" class="segmented-btn">This occurrence</button>
+                <button type="button" id="scope-series" class="segmented-btn active" aria-pressed="true">Whole series</button>
+              </div>
+            </div>
+            <div class="ed-row">
+              <span class="ed-label">Skip this occurrence</span>
+              <button type="button" id="e-skip-btn" class="mini-btn">Skip</button>
+            </div>
+          </div>
+          <p class="ed-hint">Date changes always apply to the whole series. Past completions and skips are listed below.</p>
+          <div id="e-history" class="ed-history" hidden></div>
         </div>
 
         <div class="ed-section">
@@ -251,7 +319,21 @@
               <span class="ed-label">Completed</span>
               <label class="ed-switch"><input id="e-completed" type="checkbox"><span></span></label>
             </div>
+            <div class="ed-row ed-select-row">
+              <span class="ed-ic"><svg class="ic"><use href="#i-clock"/></svg></span>
+              <span class="ed-label">Time</span>
+              <span class="ed-value" id="e-model-value">Fixed time</span>
+              <select id="e-model" aria-label="Time model">
+                <option value="fixed">Fixed time</option>
+                <option value="floating">Floating (follows this device)</option>
+                <option value="anchored">Anchored to a time zone</option>
+              </select>
+            </div>
+            <div class="ed-subrow" id="e-zone-row" hidden>
+              <select id="e-zone" aria-label="Time zone"></select>
+            </div>
           </div>
+          <p class="ed-hint" id="e-model-hint" hidden></p>
         </div>
 
         <button type="button" id="e-delete" class="danger-btn editor-delete" hidden>Delete Reminder</button>
@@ -309,6 +391,106 @@
             <button type="button" class="theme-option-btn" data-theme-pref="light">Light</button>
             <button type="button" class="theme-option-btn" data-theme-pref="dark">Dark</button>
           </div>
+          <label class="settings-row" for="set-density">
+            <span>Density</span>
+            <select id="set-density">
+              <option value="comfortable">Comfortable</option>
+              <option value="compact">Compact</option>
+            </select>
+          </label>
+          <button type="button" id="settings-save" class="primary-btn">Save settings</button>
+          <p id="settings-msg" class="form-msg" hidden></p>
+        </div>
+        <div class="settings-group">
+          <h3>New reminders</h3>
+          <label class="settings-row" for="set-default-model">
+            <span>Default time</span>
+            <select id="set-default-model">
+              <option value="fixed">Fixed time</option>
+              <option value="floating">Floating</option>
+              <option value="anchored">Anchored</option>
+            </select>
+          </label>
+          <label class="settings-row" for="set-default-time">
+            <span>Date-only time</span>
+            <input id="set-default-time" type="time">
+          </label>
+          <p class="notify-hint">Dateless “date-only” reminders fire at this time of day.</p>
+        </div>
+        <div class="settings-group">
+          <h3>Notifications</h3>
+          <label class="settings-row" for="set-repush">
+            <span>Re-push missed reminders</span>
+            <input id="set-repush" type="checkbox">
+          </label>
+          <label class="settings-row" for="set-repush-cadence">
+            <span>Re-push every (minutes)</span>
+            <input id="set-repush-cadence" type="number" min="15" max="480" step="15">
+          </label>
+          <label class="settings-row" for="set-repush-max">
+            <span>Max re-pushes</span>
+            <input id="set-repush-max" type="number" min="1" max="10">
+          </label>
+          <label class="settings-row" for="set-quiet-start">
+            <span>Quiet hours start</span>
+            <input id="set-quiet-start" type="time">
+          </label>
+          <label class="settings-row" for="set-quiet-end">
+            <span>Quiet hours end</span>
+            <input id="set-quiet-end" type="time">
+          </label>
+          <p class="notify-hint">Re-push is off by default. First notifications always fire, even in quiet hours; only repeats stay silent.</p>
+        </div>
+        <div class="settings-group">
+          <h3>This device</h3>
+          <p class="notify-hint" id="device-zone-label">Time zone: unknown yet.</p>
+        </div>
+        <div class="settings-group">
+          <h3>Backup</h3>
+          <button type="button" id="export-btn" class="secondary-btn">Download backup (JSON)</button>
+          <button type="button" id="import-btn" class="secondary-btn">Import backup…</button>
+          <input id="import-file" type="file" accept="application/json,.json" hidden>
+          <p id="import-msg" class="form-msg" hidden></p>
+          <p class="notify-hint">Import adds missing lists and reminders; it never overwrites or deletes anything.</p>
+        </div>
+        <div class="settings-group">
+          <h3>API tokens</h3>
+          <p class="notify-hint">Tokens let your other agents read lists, add reminders, and complete them — no browser needed. A token can never delete, manage lists, or change the password.</p>
+          <label class="settings-row" for="token-name">
+            <span>Name</span>
+            <input id="token-name" placeholder="e.g. friday-agent" maxlength="80" autocomplete="off">
+          </label>
+          <button type="button" id="token-generate" class="primary-btn">Generate token</button>
+          <div id="token-once" class="token-once" hidden>
+            <p class="notify-hint"><strong>Copy it now — it will never be shown again.</strong></p>
+            <p id="token-value" class="token-value"></p>
+            <button type="button" id="token-copy" class="secondary-btn">Copy</button>
+          </div>
+          <div id="token-list" class="token-list"></div>
+          <details class="token-examples">
+            <summary>curl examples</summary>
+            <pre id="token-examples">export TOKEN=YOUR_TOKEN
+export HOST=https://re.example.com
+
+# lists
+curl -H "Authorization: Bearer $TOKEN" $HOST/api/lists
+
+# add a reminder (idempotent with a client key)
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: friday-001" \
+  -d '{"title":"Call mom","list":"Reminders","due_at":"2026-11-01T18:00:00","has_time":true}' \
+  $HOST/api/reminders
+
+# read it back
+curl -H "Authorization: Bearer $TOKEN" "$HOST/api/reminders?q=Call%20mom"
+
+# complete it (advances recurring series)
+curl -X PATCH -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"completed":true}' \
+  $HOST/api/reminders/123</pre>
+          </details>
         </div>
         <form id="password-form" class="settings-group" novalidate>
           <h3>Change Password</h3>
@@ -323,6 +505,7 @@
   </div>
 
   <div id="toast" class="toast" hidden></div>
+  <div id="live" class="visually-hidden" role="status" aria-live="polite"></div>
 
   <script src="/app.js"></script>
 </body>

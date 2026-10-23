@@ -71,9 +71,62 @@ async function init() {
     updated_at TEXT NOT NULL
   )`);
   const reminderColumns = await all('PRAGMA table_info(reminders)');
-  if (!reminderColumns.some((column) => column.name === 'urgent')) {
-    await run('ALTER TABLE reminders ADD COLUMN urgent INTEGER NOT NULL DEFAULT 0');
+  // Additive-only migrations: every existing reminder keeps its data and
+  // behavior. New columns carry safe defaults (repeat = none, fixed instant).
+  const addReminderColumn = async (name, ddl) => {
+    if (!reminderColumns.some((column) => column.name === name)) {
+      await run(`ALTER TABLE reminders ADD COLUMN ${ddl}`);
+      reminderColumns.push({ name });
+    }
+  };
+  await addReminderColumn('urgent', 'urgent INTEGER NOT NULL DEFAULT 0');
+  await addReminderColumn('repeat_rule', "repeat_rule TEXT NOT NULL DEFAULT 'none'");
+  await addReminderColumn('time_model', "time_model TEXT NOT NULL DEFAULT 'fixed'");
+  await addReminderColumn('time_zone', 'time_zone TEXT');
+  await addReminderColumn('snoozed_until', 'snoozed_until TEXT');
+  await addReminderColumn('last_push_at', 'last_push_at TEXT');
+  await addReminderColumn('push_count', 'push_count INTEGER NOT NULL DEFAULT 0');
+  // Per-occurrence history for recurring reminders. One row per
+  // (reminder, scheduled occurrence): 'completed' | 'skipped' | 'exception'
+  // (an occurrence-only edit waiting to fire). UNIQUE keeps history honest.
+  await run(`CREATE TABLE IF NOT EXISTS reminder_occurrences (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reminder_id INTEGER NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
+    occurrence_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'completed',
+    title TEXT,
+    notes TEXT,
+    list_id INTEGER,
+    urgent INTEGER,
+    completed_at TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(reminder_id, occurrence_at)
+  )`);
+  // The occurrences table gained override columns after its first version.
+  const occurrenceColumns = await all('PRAGMA table_info(reminder_occurrences)');
+  if (!occurrenceColumns.some((column) => column.name === 'list_id')) {
+    await run('ALTER TABLE reminder_occurrences ADD COLUMN list_id INTEGER');
   }
+  if (!occurrenceColumns.some((column) => column.name === 'urgent')) {
+    await run('ALTER TABLE reminder_occurrences ADD COLUMN urgent INTEGER');
+  }
+  await run('CREATE INDEX IF NOT EXISTS idx_occurrences_reminder ON reminder_occurrences(reminder_id, occurrence_at)');
+  // Personal access tokens for external agents. Only the SHA-256 hash is
+  // stored; the raw token is shown once at creation and never logged.
+  await run(`CREATE TABLE IF NOT EXISTS personal_access_tokens (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL DEFAULT '',
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    last_used_at TEXT,
+    revoked_at TEXT
+  )`);
+  // Client-supplied idempotency keys for duplicate-safe reminder creation.
+  await run(`CREATE TABLE IF NOT EXISTS idempotency_keys (
+    key TEXT PRIMARY KEY,
+    reminder_id INTEGER NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL
+  )`);
   await run(`UPDATE lists SET color = CASE color
     WHEN '#FF3B30' THEN 'red'
     WHEN '#FF9500' THEN 'orange'
