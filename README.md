@@ -92,7 +92,7 @@ Sessions are stored in memory, so restarting the process logs you out. The sessi
 
 ## Version
 
-1.1.0
+1.1.1
 
 ## License
 

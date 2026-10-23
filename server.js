@@ -102,7 +102,7 @@ async function main() {
   app.use(express.static(PUBLIC_DIR, {
     maxAge: '1d',
     setHeaders(res, filePath) {
-      if (/(?:sw\.js|index\.html|manifest\.webmanifest)$/.test(filePath)) {
+      if (/(?:sw\.js|index\.html|manifest\.webmanifest|app\.js|styles\.css)$/.test(filePath)) {
         res.setHeader('Cache-Control', 'no-cache');
       }
     },
