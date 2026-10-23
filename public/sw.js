@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'remember-v1.8.3';
+const CACHE = 'remember-v1.8.4';
 const ASSETS = [
   '/',
   '/index.html',
@@ -104,7 +104,7 @@ self.addEventListener('push', (event) => {
       { action: 'snooze', title: 'Snooze 1 hour' },
     ];
   }
-  event.waitUntil(self.registration.showNotification(data.title || 'Remember', options));
+  event.waitUntil(self.registration.showNotification(data.title || 'Done!', options));
 });
 
 self.addEventListener('notificationclick', (event) => {

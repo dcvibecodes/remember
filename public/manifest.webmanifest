@@ -1,6 +1,6 @@
 {
-  "name": "Remember",
-  "short_name": "Remember",
+  "name": "Done!",
+  "short_name": "Done!",
   "description": "A self-hosted, Apple Reminders-style task app.",
   "id": "/",
   "start_url": "/",

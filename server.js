@@ -731,7 +731,7 @@ async function main() {
       'SELECT reminder_id, occurrence_at, status, title, notes, completed_at, created_at FROM reminder_occurrences ORDER BY id'
     );
     res.json({
-      app: 'remember',
+      app: 'done',
       format: 1,
       exported_at: new Date().toISOString(),
       settings: {
@@ -755,8 +755,8 @@ async function main() {
   app.post('/api/import', async (req, res) => {
     if (req.token) return denyToken(res);
     const data = req.body.data;
-    if (!data || typeof data !== 'object' || data.app !== 'remember') {
-      return res.status(400).json({ error: 'That is not a Remember backup file' });
+    if (!data || typeof data !== 'object' || data.app !== 'remember' && data.app !== 'done') {
+      return res.status(400).json({ error: 'That is not a Done! backup file' });
     }
     const counts = { listsAdded: 0, listsSkipped: 0, remindersAdded: 0, remindersSkipped: 0, occurrencesAdded: 0, occurrencesSkipped: 0 };
     const knownLists = new Set((await db.all('SELECT id FROM lists')).map((r) => r.id));
@@ -1491,7 +1491,7 @@ async function main() {
 
   app.post('/api/push/test', async (req, res) => {
     const result = await push.sendToAll({
-      title: 'Remember',
+      title: 'Done!',
       body: 'Notifications are working.',
       url: '/#/today',
       tag: 'remember-test',
@@ -1514,7 +1514,7 @@ async function main() {
   });
 
   app.listen(PORT, HOST, () => {
-    console.log(`Remember ${VERSION} listening on http://${HOST}:${PORT}`);
+    console.log(`Done! ${VERSION} listening on http://${HOST}:${PORT}`);
   });
 
   function inQuietHours(nowMs, zone, start, end) {

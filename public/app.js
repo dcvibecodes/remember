@@ -861,7 +861,7 @@ function renderMain() {
   }
 
   if (view === 'home') {
-    document.title = 'Remember';
+    document.title = 'Done!';
     return;
   }
 
@@ -891,7 +891,7 @@ function renderMain() {
     $('#view-menu').hidden = false;
     $('#view-menu').onclick = () => openListSheet(list);
   }
-  document.title = `Remember — ${title}`;
+  document.title = `Done! — ${title}`;
 
   if (!items.length && !completed.length) {
     content.append(emptyState(view));
@@ -2015,7 +2015,7 @@ function updateNotifyUI() {
   const enabled = Boolean(state.subscription);
   $('#notify-status').textContent = enabled
     ? 'Notifications are on for this device. You will be notified when a reminder is due.'
-    : 'Allow Remember to send a notification when a reminder is due.';
+    : 'Allow Done! to send a notification when a reminder is due.';
   $('#notify-enable').hidden = enabled;
   $('#notify-test').hidden = !enabled;
   $('#notify-disable').hidden = !enabled;
@@ -2036,7 +2036,7 @@ function openNotifySheet() {
     enable.disabled = true;
   } else if (isIOS && !standalone) {
     hint.hidden = false;
-    hint.textContent = 'On iPhone or iPad, notifications only work after adding Remember to your Home Screen: tap Share, then Add to Home Screen, and open it from there.';
+    hint.textContent = 'On iPhone or iPad, notifications only work after adding Done! to your Home Screen: tap Share, then Add to Home Screen, and open it from there.';
     enable.disabled = true;
   } else {
     hint.hidden = true;
