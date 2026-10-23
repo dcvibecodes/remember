@@ -301,9 +301,9 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 
 .search-ic {
   position: absolute;
-  left: 9px;
-  width: 15px;
-  height: 15px;
+  left: 10px;
+  width: 16px;
+  height: 16px;
   color: var(--text-3);
   pointer-events: none;
 }
@@ -312,11 +312,12 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   width: 100%;
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
-  padding: 7px 10px 7px 30px;
+  padding: 7px 10px 7px 32px;
   background: var(--elev);
   color: var(--text);
   font-size: 0.8125rem;
   -webkit-appearance: none;
+  appearance: none;
   appearance: none;
 }
 
@@ -1803,8 +1804,10 @@ body.sheet-open .sidebar {
     width: 100%;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
-    padding: 8px 10px 8px 32px;
+    padding: 7px 10px 7px 32px;
     background: var(--elev);
+    color: var(--text);
+    font-size: 0.8125rem;
     -webkit-appearance: none;
     appearance: none;
   }
@@ -1961,8 +1964,9 @@ body.sheet-open .sidebar {
     width: 100%;
     border: 1px solid var(--line);
     border-radius: var(--radius-sm);
-    padding: 8px 10px 8px 32px;
+    padding: 7px 10px 7px 32px;
     background: var(--elev);
+    color: var(--text);
     -webkit-appearance: none;
     appearance: none;
   }
