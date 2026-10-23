@@ -1892,7 +1892,7 @@ body.sheet-open .sidebar {
 
   /* Home and detail headers share the same height so the menu button never
      shifts vertically when opening a list. */
-  .sidebar-head, .main-head { min-height: 34px; }
+  .sidebar-head, .main-head { min-height: 33px; }
   .sidebar-head { align-items: flex-start; }
 
   .main-head {
@@ -1905,11 +1905,14 @@ body.sheet-open .sidebar {
   .back-btn { order: 1; flex: none; padding: 6px 6px 6px 0; margin-right: 2px; }
   .back-btn span { display: none; }
   .title-wrap { order: 2; flex-direction: row; align-items: baseline; gap: 8px; }
-  .title-wrap h2 { font-size: 1.25rem; }
+  .title-wrap h2 { font-size: 1.375rem; }
   .view-count { font-size: 0.8125rem; }
   #view-menu { order: 3; }
   #refresh-btn { order: 4; }
   #menu-btn { order: 5; }
+  /* Pin the action icons to the top edge exactly like the Home header
+     actions, so they never drift when the title size changes. */
+  #menu-btn, #refresh-btn { align-self: flex-start; }
 
   .search input, .main-search input,
   .auth-card input, .settings-group input, .e-title, .e-notes,
