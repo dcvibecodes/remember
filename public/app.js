@@ -1182,34 +1182,113 @@ function reminderRow(reminder, options = {}) {
     toggleCompleted(reminder);
   });
 
-  // Web equivalent of swipe-to-delete: a quiet × that appears on hover for
-  // mouse users (never on touch, where the swipe owns this gesture).
+  // Web delete affordance: the × appears on hover (mouse only); first click
+  // turns it into an inline Confirm?, second click deletes. No browser popup.
   const remove = el('button', {
     type: 'button',
     class: 'row-delete',
     'aria-label': `Delete ${reminder.title}`,
     html: ICON('x', 'ic'),
-    onclick: (event) => { event.stopPropagation(); deleteReminderSwipe(reminder); },
+    onclick: (event) => {
+      event.stopPropagation();
+      handleRowDelete(reminder, event.currentTarget);
+    },
   });
 
-  const content = el('div', { class: 'swipe-content' }, [check, body, remove]);
-  const background = el('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, [
-    el('span', { class: 'swipe-act del' }, [
-      el('span', { text: 'Delete' }),
-      el('span', { html: ICON('x', 'ic') }),
-    ]),
+  const deleteAction = el('button', {
+    type: 'button',
+    class: 'swipe-act del',
+    tabindex: '-1',
+    'aria-label': `Delete ${reminder.title}`,
+    onclick: (event) => {
+      event.stopPropagation();
+      handleSwipeDelete(reminder, event.currentTarget);
+    },
+  }, [
+    el('span', { class: 'del-label', text: 'Delete' }),
+    el('span', { html: ICON('x', 'ic') }),
   ]);
+
+  const content = el('div', { class: 'swipe-content' }, [check, body, remove]);
+  const background = el('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, [deleteAction]);
 
   return el('div', {
     class: 'reminder' + (reminder.completed ? ' done' : ''),
     style: { '--c': color },
     'data-reminder-id': reminder.id,
-    onclick: () => {
+    onclick: (event) => {
       // A swipe that just ended must not open the editor.
       if (Date.now() - lastSwipeEnd < 400) return;
+      const row = event.currentTarget;
+      // Tapping a parked row closes the reveal instead of opening the editor.
+      if (row.classList.contains('swipe-open')) {
+        resetSwipe(row);
+        return;
+      }
       openEditor(reminder.id);
     },
   }, [background, content]);
+}
+
+function resetRowDelete(button) {
+  if (!button) return;
+  clearTimeout(button._confirmTimer);
+  button.dataset.confirm = '';
+  button.classList.remove('confirming');
+  button.innerHTML = ICON('x', 'ic');
+  button.setAttribute('aria-label', button.dataset.origLabel || 'Delete reminder');
+}
+
+function handleRowDelete(reminder, button) {
+  if (button.dataset.confirm !== '1') {
+    if (!button.dataset.origLabel) button.dataset.origLabel = button.getAttribute('aria-label') || 'Delete reminder';
+    button.dataset.confirm = '1';
+    button.classList.add('confirming');
+    button.textContent = 'Confirm?';
+    button.setAttribute('aria-label', 'Confirm delete');
+    clearTimeout(button._confirmTimer);
+    button._confirmTimer = setTimeout(() => resetRowDelete(button), 4000);
+    return;
+  }
+  clearTimeout(button._confirmTimer);
+  deleteReminderInline(reminder, button.closest('.reminder'));
+}
+
+function handleSwipeDelete(reminder, button) {
+  if (button.dataset.confirm !== '1') {
+    button.dataset.confirm = '1';
+    const label = button.querySelector('.del-label');
+    if (label) label.textContent = 'Confirm?';
+    button.setAttribute('aria-label', 'Confirm delete');
+    return;
+  }
+  deleteReminderInline(reminder, button.closest('.reminder'));
+}
+
+function deleteReminderInline(reminder, row) {
+  if (!row || row.dataset.deleting) return;
+  row.dataset.deleting = '1';
+  const content = swipeContentOf(row);
+  const height = row.offsetHeight;
+  row.style.height = `${height}px`;
+  row.classList.add('removing');
+  if (content) content.style.transform = 'translateX(-100%)';
+  requestAnimationFrame(() => {
+    row.style.height = '0px';
+    row.style.opacity = '0';
+  });
+  setTimeout(async () => {
+    try {
+      await api('/api/reminders/' + reminder.id, { method: 'DELETE' });
+      await loadState();
+      render();
+      toast('Reminder deleted');
+    } catch (err) {
+      toast(err.message);
+      await loadState();
+      render();
+    }
+  }, 230);
 }
 
 function escapeHtml(value) {
@@ -1939,6 +2018,7 @@ function trapSheetTab(event) {
 // buttons opt out.
 let swipe = null;
 let lastSwipeEnd = 0;
+let mouseDrag = null;
 
 function swipeContentOf(row) {
   return row ? row.querySelector('.swipe-content') : null;
@@ -1950,6 +2030,30 @@ function resetSwipe(row) {
     content.classList.remove('swiping');
     content.style.transform = '';
   }
+  if (row) row.classList.remove('swipe-open');
+  const action = row ? row.querySelector('.swipe-act.del') : null;
+  if (action) {
+    action.dataset.confirm = '';
+    const label = action.querySelector('.del-label');
+    if (label) label.textContent = 'Delete';
+    action.setAttribute('aria-label', 'Delete reminder');
+  }
+}
+
+function snapSwipeOpen(row) {
+  const content = swipeContentOf(row);
+  if (!content) return;
+  const max = Math.min(140, (row.offsetWidth || 300) * 0.45);
+  content.classList.remove('swiping');
+  content.style.transform = `translateX(-${max}px)`;
+  row.classList.add('swipe-open');
+  const action = row.querySelector('.swipe-act.del');
+  if (action) {
+    action.dataset.confirm = '';
+    const label = action.querySelector('.del-label');
+    if (label) label.textContent = 'Delete';
+    action.setAttribute('aria-label', 'Delete reminder');
+  }
 }
 
 function releaseSwipePointer(current) {
@@ -1958,7 +2062,16 @@ function releaseSwipePointer(current) {
 }
 
 $('#content').addEventListener('pointerdown', (event) => {
-  if (event.pointerType === 'mouse' && event.button !== 0) return;
+  // Swipe-to-reveal is a touch gesture. On the web, the × is the delete path.
+  if (event.pointerType === 'mouse') {
+    mouseDrag = event.button === 0 ? { x: event.clientX, y: event.clientY } : null;
+    return;
+  }
+  if (event.button !== undefined && event.button !== 0) return;
+  // Starting a gesture elsewhere closes any parked row.
+  $$('.reminder.swipe-open').forEach((node) => {
+    if (!node.contains(event.target)) resetSwipe(node);
+  });
   const row = event.target.closest('.reminder');
   if (!row || event.target.closest('a, button, input, textarea, select')) {
     swipe = null;
@@ -1976,6 +2089,13 @@ $('#content').addEventListener('pointerdown', (event) => {
 });
 
 $('#content').addEventListener('pointermove', (event) => {
+  // A mouse drag is not a gesture, but it must not become a click on release.
+  if (event.pointerType === 'mouse' && mouseDrag) {
+    if (Math.abs(event.clientX - mouseDrag.x) > 8 || Math.abs(event.clientY - mouseDrag.y) > 8) {
+      lastSwipeEnd = Date.now();
+    }
+    return;
+  }
   if (!swipe || event.pointerId !== swipe.pointerId) return;
   if (!document.contains(swipe.row)) {
     swipe = null;
@@ -2015,12 +2135,16 @@ async function endSwipe(commit) {
     resetSwipe(current.row);
     return;
   }
-  // Completed reminders are deletable too — the checkbox only controls
-  // completion; swipe-left delete applies to every row.
-  deleteReminderSwipe(reminder, () => resetSwipe(current.row));
+  // Park the row on the red Delete action. The user must tap Delete, then
+  // Confirm? — no browser dialog. Completed rows can be deleted too.
+  snapSwipeOpen(current.row);
 }
 
 $('#content').addEventListener('pointerup', (event) => {
+  if (event.pointerType === 'mouse') {
+    mouseDrag = null;
+    return;
+  }
   if (!swipe || event.pointerId !== swipe.pointerId) return;
   if (!swipe.active) {
     swipe = null;
@@ -2033,6 +2157,7 @@ $('#content').addEventListener('pointerup', (event) => {
 });
 
 $('#content').addEventListener('pointercancel', () => {
+  mouseDrag = null;
   if (swipe && swipe.active) {
     resetSwipe(swipe.row);
     releaseSwipePointer(swipe);
@@ -2040,22 +2165,6 @@ $('#content').addEventListener('pointercancel', () => {
   swipe = null;
 });
 
-async function deleteReminderSwipe(reminder, onCancel) {
-  const title = reminder.title.length > 60 ? reminder.title.slice(0, 60) + '…' : reminder.title;
-  if (!window.confirm(`Delete "${title}"?`)) {
-    if (onCancel) onCancel();
-    return;
-  }
-  try {
-    await api('/api/reminders/' + reminder.id, { method: 'DELETE' });
-    await loadState();
-    render();
-    toast('Reminder deleted');
-  } catch (err) {
-    if (onCancel) onCancel();
-    toast(err.message);
-  }
-}
 
 /* ---------------- Theme & settings ---------------- */
 
@@ -2391,6 +2500,12 @@ document.addEventListener('click', (event) => {
     }
   }
 });
+
+document.addEventListener('pointerdown', (event) => {
+  $$('.row-delete.confirming').forEach((button) => {
+    if (!button.contains(event.target)) resetRowDelete(button);
+  });
+}, true);
 
 document.addEventListener('keydown', (event) => {
   if (event.key === 'Tab') {

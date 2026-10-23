@@ -589,14 +589,18 @@ body.list-dragging .list-grip { cursor: grabbing; }
   gap: 6px;
   padding: 0 18px;
   color: #ffffff;
+  font-family: inherit;
   font-size: 0.8125rem;
   font-weight: 600;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
   white-space: nowrap;
+  border: 0;
+  cursor: pointer;
+  pointer-events: auto;
 }
 
 .swipe-act .ic { width: 18px; height: 18px; }
-.swipe-act.del { background: var(--red); width: 100%; justify-content: flex-end; }
+.swipe-act.del { background: var(--red); width: min(140px, 45%); justify-content: flex-end; }
 
 .swipe-content {
   position: relative;
@@ -634,16 +638,20 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .row-delete {
   flex: none;
   align-self: center;
-  width: 30px;
+  min-width: 30px;
   height: 30px;
+  padding: 0;
   display: grid;
   place-items: center;
   border: 0;
-  border-radius: 50%;
+  border-radius: 999px;
   background: transparent;
   color: var(--text-3);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 600;
   opacity: 0;
-  transition: opacity 0.15s, background 0.15s, color 0.15s;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, width 0.15s, padding 0.15s;
 }
 
 .row-delete .ic { width: 15px; height: 15px; }
@@ -652,6 +660,25 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .row-delete:focus-visible { opacity: 0.8; }
 
 .row-delete:hover { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); opacity: 1; }
+
+.row-delete.confirming {
+  width: auto;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--red) 14%, transparent);
+  color: var(--red);
+  opacity: 1;
+}
+
+/* Deleting collapses the row after the inline confirm. */
+.reminder.removing {
+  overflow: hidden;
+  transition: height 0.22s ease, opacity 0.18s ease;
+}
+
+.reminder.removing .swipe-content {
+  transform: translateX(-100%);
+  opacity: 0;
+}
 
 @media (hover: none) {
   .row-delete { display: none; }
