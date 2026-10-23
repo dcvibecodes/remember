@@ -504,6 +504,23 @@ function render() {
   updateBadge();
 }
 
+const SIDEBAR_KEY = 'remember.sidebar';
+
+// Desktop drawer: open by default, toggleable, and the choice persists.
+function applySidebar() {
+  const open = localStorage.getItem(SIDEBAR_KEY) !== 'closed';
+  document.body.classList.toggle('sidebar-closed', !open);
+  const btn = $('#menu-btn');
+  if (btn) btn.setAttribute('aria-expanded', String(open));
+}
+
+function toggleSidebar() {
+  const closed = document.body.classList.toggle('sidebar-closed');
+  localStorage.setItem(SIDEBAR_KEY, closed ? 'closed' : 'open');
+  const btn = $('#menu-btn');
+  if (btn) btn.setAttribute('aria-expanded', String(!closed));
+}
+
 let listDrag = null;
 
 function cleanupListDrag() {
@@ -1150,12 +1167,28 @@ function reminderRow(reminder, options = {}) {
     onclick: (event) => { event.stopPropagation(); deleteReminderSwipe(reminder); },
   });
 
+  const content = el('div', { class: 'swipe-content' }, [check, body, remove]);
+  const background = el('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, [
+    el('span', { class: 'swipe-act done' }, [
+      el('span', { html: ICON('check', 'ic') }),
+      el('span', { text: 'Done' }),
+    ]),
+    el('span', { class: 'swipe-act del' }, [
+      el('span', { text: 'Delete' }),
+      el('span', { html: ICON('x', 'ic') }),
+    ]),
+  ]);
+
   return el('div', {
     class: 'reminder' + (reminder.completed ? ' done' : ''),
     style: { '--c': color },
     'data-reminder-id': reminder.id,
-    onclick: () => openEditor(reminder.id),
-  }, [check, body, remove]);
+    onclick: () => {
+      // A swipe that just ended must not open the editor.
+      if (Date.now() - lastSwipeEnd < 400) return;
+      openEditor(reminder.id);
+    },
+  }, [background, content]);
 }
 
 function escapeHtml(value) {
@@ -1870,52 +1903,118 @@ function trapSheetTab(event) {
   }
 }
 
-// Swipe on rows: right completes, left deletes (with a confirm, Apple-style).
-// The circle, editor, and hover delete button stay as always-available
-// fallbacks; links and buttons opt out of swipe.
-let swipeStart = null;
+// Interactive swipe: the card follows the finger, revealing Done on the
+// right-swipe side and Delete on the left-swipe side. Releasing past the
+// threshold acts (delete still asks first); otherwise the card springs back.
+// Links and buttons opt out, and vertical scrolling passes through untouched
+// (rows also declare touch-action: pan-y).
+let swipe = null;
+let lastSwipeEnd = 0;
+
+function swipeContentOf(row) {
+  return row ? row.querySelector('.swipe-content') : null;
+}
+
+function resetSwipe(row) {
+  const content = swipeContentOf(row);
+  if (content) {
+    content.classList.remove('swiping');
+    content.style.transform = '';
+  }
+}
 
 $('#content').addEventListener('touchstart', (event) => {
   if (event.touches.length !== 1) {
-    swipeStart = null;
+    swipe = null;
     return;
   }
   const row = event.target.closest('.reminder');
   if (!row || event.target.closest('a, button, input, textarea, select')) {
-    swipeStart = null;
+    swipe = null;
     return;
   }
   const touch = event.touches[0];
-  swipeStart = { id: Number(row.dataset.reminderId), x: touch.clientX, y: touch.clientY, at: Date.now() };
+  swipe = {
+    id: Number(row.dataset.reminderId),
+    row,
+    startX: touch.clientX,
+    startY: touch.clientY,
+    active: false,
+  };
 }, { passive: true });
 
-$('#content').addEventListener('touchend', (event) => {
-  if (!swipeStart || event.changedTouches.length !== 1) {
-    swipeStart = null;
+$('#content').addEventListener('touchmove', (event) => {
+  if (!swipe || event.touches.length !== 1) return;
+  if (!document.contains(swipe.row)) {
+    swipe = null;
     return;
   }
-  const touch = event.changedTouches[0];
-  const dx = touch.clientX - swipeStart.x;
-  const dy = touch.clientY - swipeStart.y;
-  const dt = Date.now() - swipeStart.at;
-  const { id } = swipeStart;
-  swipeStart = null;
-  if (Math.abs(dx) < 64 || Math.abs(dy) > 32 || dt > 900) return;
-  const reminder = state.reminders.find((item) => item.id === id);
-  if (!reminder || reminder.completed) return;
-  if (dx > 0) toggleCompleted(reminder);
-  else deleteReminderSwipe(reminder);
+  const touch = event.touches[0];
+  const dx = touch.clientX - swipe.startX;
+  const dy = touch.clientY - swipe.startY;
+  if (!swipe.active) {
+    if (Math.abs(dx) < 10 || Math.abs(dx) <= Math.abs(dy) * 1.2) return;
+    swipe.active = true;
+    const content = swipeContentOf(swipe.row);
+    if (content) content.classList.add('swiping');
+  }
+  event.preventDefault();
+  const content = swipeContentOf(swipe.row);
+  if (!content) return;
+  const max = Math.min(140, (swipe.row.offsetWidth || 300) * 0.45);
+  const clamped = Math.max(-max, Math.min(max, dx));
+  content.style.transform = clamped ? `translateX(${clamped}px)` : '';
+}, { passive: false });
+
+async function endSwipe(commit) {
+  const current = swipe;
+  swipe = null;
+  if (!current || !current.active) return;
+  lastSwipeEnd = Date.now();
+  const reminder = state.reminders.find((item) => item.id === current.id);
+  if (!reminder || reminder.completed || commit === 0) {
+    resetSwipe(current.row);
+    return;
+  }
+  if (commit < 0) {
+    // Keep the card parked on Delete while the confirm is up; spring back
+    // if the user cancels.
+    deleteReminderSwipe(reminder, () => resetSwipe(current.row));
+  } else {
+    resetSwipe(current.row);
+    toggleCompleted(reminder);
+  }
+}
+
+$('#content').addEventListener('touchend', (event) => {
+  if (!swipe || !swipe.active || event.changedTouches.length !== 1) {
+    swipe = null;
+    return;
+  }
+  const dx = event.changedTouches[0].clientX - swipe.startX;
+  const width = swipe.row.offsetWidth || 300;
+  const threshold = Math.min(100, width * 0.35);
+  endSwipe(Math.abs(dx) < threshold ? 0 : dx);
 }, { passive: true });
 
-async function deleteReminderSwipe(reminder) {
+$('#content').addEventListener('touchcancel', () => {
+  if (swipe && swipe.active) resetSwipe(swipe.row);
+  swipe = null;
+}, { passive: true });
+
+async function deleteReminderSwipe(reminder, onCancel) {
   const title = reminder.title.length > 60 ? reminder.title.slice(0, 60) + '…' : reminder.title;
-  if (!window.confirm(`Delete "${title}"?`)) return;
+  if (!window.confirm(`Delete "${title}"?`)) {
+    if (onCancel) onCancel();
+    return;
+  }
   try {
     await api('/api/reminders/' + reminder.id, { method: 'DELETE' });
     await loadState();
     render();
     toast('Reminder deleted');
   } catch (err) {
+    if (onCancel) onCancel();
     toast(err.message);
   }
 }
@@ -2173,6 +2272,7 @@ $('#import-file').addEventListener('change', (event) => {
 });
 
 $('#fab-add').addEventListener('click', () => openEditor(null));
+$('#menu-btn').addEventListener('click', toggleSidebar);
 $$('.refresh-btn').forEach((btn) => btn.addEventListener('click', refreshState));
 
 function setSearch(value, source) {
@@ -2293,4 +2393,5 @@ document.addEventListener('visibilitychange', () => {
 });
 
 applyDensity();
+applySidebar();
 boot();

@@ -555,17 +555,57 @@ body.list-dragging .list-grip { cursor: grabbing; }
 }
 
 .reminder {
+  position: relative;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  touch-action: pan-y;
+}
+
+.reminder:last-child { border-bottom: 0; }
+
+/* Swipe layers: the content slides with the finger, revealing the action
+   underneath — Complete on the left, Delete on the right. */
+.swipe-bg {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.swipe-act {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 18px;
+  color: #ffffff;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  white-space: nowrap;
+}
+
+.swipe-act .ic { width: 18px; height: 18px; }
+.swipe-act.done { background: var(--c); }
+.swipe-act.del { background: var(--red); margin-left: auto; }
+
+.swipe-content {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 12px;
   min-height: 64px;
   padding: 14px;
-  border-bottom: 1px solid var(--line);
-  cursor: pointer;
+  background: var(--surface);
+  transition: transform 0.18s ease;
+  will-change: transform;
 }
 
-.reminder:last-child { border-bottom: 0; }
-.reminder:hover { background: var(--hover); }
+.swipe-content.swiping { transition: none; user-select: none; -webkit-user-select: none; }
+
+.reminder:hover .swipe-content { background: var(--hover); }
 
 .check {
   flex: none;
@@ -1578,10 +1618,54 @@ body.sheet-open .sidebar {
   #refresh-btn { display: none; }
 }
 
+#menu-btn { display: none; }
+
+/* ---------- Desktop web layout: page scroll, drawer sidebar ---------- */
+@media (min-width: 900px) {
+  html, body { height: auto; }
+  body { min-height: 100dvh; overflow-y: auto; overscroll-behavior-y: auto; }
+
+  .shell { display: block; height: auto; min-height: 100dvh; }
+
+  /* The sidebar is a slide-over drawer: no more iframe-like permanent
+     scroller. It overlays content, and its open/closed choice persists. */
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    z-index: 50;
+    box-shadow: 8px 0 30px rgba(0, 0, 0, 0.1);
+    transform: translateX(0);
+    transition: transform 0.22s ease;
+  }
+
+  body.sidebar-closed .sidebar { transform: translateX(-105%); }
+
+  .main { min-height: 100dvh; }
+
+  /* The list title freezes on top while the whole page scrolls beneath it. */
+  .main-head {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background: var(--bg);
+    max-width: 760px;
+  }
+
+  .content { overflow: visible; max-width: 760px; }
+
+  #menu-btn { display: grid; }
+}
+
+@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
+  .sidebar { transition: none; }
+}
+
 /* ---------- Compact density (opt-in) ---------- */
 
 [data-density="compact"] .list-row { min-height: 0; padding: 6px 8px; }
-[data-density="compact"] .reminder { min-height: 0; padding: 8px 12px; gap: 10px; }
+[data-density="compact"] .swipe-content { min-height: 0; padding: 8px 12px; gap: 10px; }
 [data-density="compact"] .reminder-title { font-size: 0.875rem; }
 [data-density="compact"] .reminder-meta { font-size: 0.7rem; gap: 8px; }
 [data-density="compact"] .reminder-notes { font-size: 0.7rem; }
@@ -1680,7 +1764,7 @@ body.sheet-open .sidebar {
     height: 94dvh;
     max-height: 94dvh;
   }
-  .reminder { padding: 12px 14px; }
+  .swipe-content { padding: 12px 14px; }
   .reminder-title { font-size: 0.9375rem; }
   .reminder-meta { font-size: 0.75rem; }
 
@@ -1709,14 +1793,14 @@ body.sheet-open .sidebar {
 }
 
 @media (hover: none) {
-  .reminder:hover,
+  .reminder:hover .swipe-content,
   .nav-row:hover,
   .list-row:hover,
   .icon-btn:hover,
   .text-btn:hover,
   .list-card:hover { background: transparent; }
   .text-btn:hover { color: var(--text-2); }
-  .reminder:active { background: var(--hover); }
+  .reminder:active .swipe-content { background: var(--hover); }
 }
 
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
