@@ -2,6 +2,10 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v1.10.1
+
+- **Balanced sort bar spacing** — the Sort/Order row now has equal 12px padding above and below, so it sits evenly between the search bar and the first to-do card. Service worker cache bumped to `remember-v1.10.1`.
+
 ## What's New in v1.10.0
 
 - **Renamed to ToDo** — the app is now ToDo everywhere: tab title, Home wordmark, auth screen, manifest/PWA name, notification titles, and user-facing copy (“to-dos”, “New To-Do”). Existing backup files still import.
