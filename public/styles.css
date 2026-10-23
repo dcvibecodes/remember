@@ -567,6 +567,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
   position: relative;
   overflow: hidden;
   border-bottom: 1px solid var(--line);
+  background: var(--surface);
   cursor: pointer;
   touch-action: pan-y;
 }
@@ -582,7 +583,14 @@ body.list-dragging .list-grip { cursor: grabbing; }
   align-items: stretch;
   justify-content: flex-end;
   pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.12s ease;
 }
+
+/* Never show the action color through a resting row's edge. It appears only
+   while the card is actually being swiped or parked open. */
+.reminder.swipe-active .swipe-bg,
+.reminder.swipe-open .swipe-bg { opacity: 1; }
 
 .swipe-act {
   display: flex;

@@ -2,8 +2,6 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
-Live: https://re.example.com
-
 ## Features
 
 - Lists with a 15-color palette (new lists auto-pick the first unused color, then rotate) and drag-to-reorder handles (pointer, touch, and keyboard).
@@ -60,7 +58,7 @@ Optional environment variables:
 | `PORT` | `3006` | HTTP port |
 | `HOST` | `127.0.0.1` | Bind address |
 | `DATA_DIR` | `./data` | SQLite directory |
-| `CONTACT_EMAIL` | `noreply@example.com` | VAPID contact email |
+| `CONTACT_EMAIL` | `your@email.com` | VAPID contact email; set your own |
 
 Your data lives in `data/remember.db`. It is gitignored because it contains the password hash, VAPID private key, and all reminders.
 
@@ -121,7 +119,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.8.1
+1.8.2
 
 ## License
 

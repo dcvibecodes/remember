@@ -2214,7 +2214,7 @@ function resetSwipe(row) {
     content.classList.remove('swiping');
     content.style.transform = '';
   }
-  if (row) row.classList.remove('swipe-open');
+  if (row) row.classList.remove('swipe-open', 'swipe-active');
   const action = row ? row.querySelector('.swipe-act.del') : null;
   if (action) {
     action.dataset.confirm = '';
@@ -2230,6 +2230,7 @@ function snapSwipeOpen(row) {
   const max = Math.min(140, (row.offsetWidth || 300) * 0.45);
   content.classList.remove('swiping');
   content.style.transform = `translateX(-${max}px)`;
+  row.classList.remove('swipe-active');
   row.classList.add('swipe-open');
   const action = row.querySelector('.swipe-act.del');
   if (action) {
@@ -2300,6 +2301,7 @@ $('#content').addEventListener('pointermove', (event) => {
     swipe.active = true;
     const content = swipeContentOf(swipe.row);
     if (content) content.classList.add('swiping');
+    swipe.row.classList.add('swipe-active');
   }
   event.preventDefault();
   const content = swipeContentOf(swipe.row);
