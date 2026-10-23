@@ -1747,7 +1747,7 @@ body.sheet-open .sidebar {
 
   .sidebar {
     position: static;
-    width: min(60vw, 1100px);
+    width: min(54vw, 990px);
     height: 100%;
     margin: 0 auto;
     border-right: 0;
@@ -1770,7 +1770,7 @@ body.sheet-open .sidebar {
   .sidebar .sidebar-foot { display: none; }
 
   .main {
-    width: min(60vw, 1100px);
+    width: min(54vw, 990px);
     min-height: 0;
     margin: 0 auto;
     display: flex;
@@ -1819,11 +1819,11 @@ body.sheet-open .sidebar {
   .sort-bar { margin: 8px 24px 0; }
 
   .account-menu {
-    right: max(12px, calc((100vw - min(60vw, 1100px)) / 2 + 12px));
+    right: max(12px, calc((100vw - min(54vw, 990px)) / 2 + 12px));
   }
 
   .fab {
-    right: max(28px, calc((100vw - min(60vw, 1100px)) / 2 + 28px));
+    right: max(28px, calc((100vw - min(54vw, 990px)) / 2 + 28px));
   }
 
   .content {

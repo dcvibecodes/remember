@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'remember-v1.8.11';
+const CACHE = 'remember-v1.8.12';
 const ASSETS = [
   '/',
   '/index.html',
