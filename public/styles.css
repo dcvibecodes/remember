@@ -248,7 +248,9 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 .sidebar-head-actions {
   display: flex;
   align-items: center;
-  gap: 2px;
+  /* Same gap as .main-head so refresh/menu sit at identical coordinates
+     on Home and detail. */
+  gap: 12px;
 }
 
 #sidebar-menu-btn { display: grid; }
