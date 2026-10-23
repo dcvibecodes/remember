@@ -6,7 +6,7 @@ Live: https://re.example.com
 
 ## Features
 
-- Lists with a 15-color palette and drag-to-reorder handles (pointer, touch, and keyboard).
+- Lists with a 15-color palette (new lists auto-pick the first unused color, then rotate) and drag-to-reorder handles (pointer, touch, and keyboard).
 - Reminders with title, notes, date, optional time, and an urgent flag.
 - Recurring reminders (daily/weekly/monthly/yearly/custom) with per-occurrence completion history, skip, and this-occurrence-vs-series editing.
 - Natural-language quick add: "call mom tomorrow 6pm" pre-fills the editor with a removable preview.
@@ -14,7 +14,7 @@ Live: https://re.example.com
 - Time models: fixed instant (default), floating wall-clock that follows the device time zone, or zone-anchored.
 - Snooze (in-app button + notification actions where supported), opt-in re-push with quiet hours.
 - Token API so external agents can list, add, and complete reminders without a browser.
-- Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API.
+- Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
 - Search across active reminders.
 - Installable PWA with web push notifications. iOS requires 16.4+ and the app installed to the Home Screen.
 - Single-user password auth, CSRF protection, rate-limited login, and secure session cookies behind HTTPS.
@@ -110,7 +110,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.4.0
+1.5.0
 
 ## License
 

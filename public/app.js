@@ -387,9 +387,34 @@ function parseRoute() {
   return 'today';
 }
 
+const SHOW_COMPLETED_KEY = 'remember.showCompleted';
+
+function showCompletedPrefs() {
+  try {
+    return JSON.parse(localStorage.getItem(SHOW_COMPLETED_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+// Completed stays hidden by default, but when you tap "Show N Completed" on
+// a list, that choice is remembered per list and restored on every visit.
+function getShowCompleted(listId) {
+  return Boolean(showCompletedPrefs()[listId]);
+}
+
+function setShowCompleted(listId, value) {
+  const prefs = showCompletedPrefs();
+  if (value) prefs[listId] = true;
+  else delete prefs[listId];
+  localStorage.setItem(SHOW_COMPLETED_KEY, JSON.stringify(prefs));
+}
+
 function route() {
   const view = parseRoute();
-  if (view !== state.view) state.showCompleted = false;
+  if (view !== state.view) {
+    state.showCompleted = typeof view === 'number' ? getShowCompleted(view) : false;
+  }
   const active = document.activeElement;
   // Don't steal the keyboard when the user is mid-search: the results view
   // takes over and focus is handed to its own search box below.
@@ -746,6 +771,7 @@ function renderMain() {
       text: `${state.showCompleted ? 'Hide' : 'Show'} ${completeCount} Completed`,
       onclick: () => {
         state.showCompleted = !state.showCompleted;
+        if (typeof state.view === 'number') setShowCompleted(state.view, state.showCompleted);
         renderMain();
       },
     }));
@@ -1114,26 +1140,22 @@ function reminderRow(reminder, options = {}) {
     toggleCompleted(reminder);
   });
 
+  // Web equivalent of swipe-to-delete: a quiet × that appears on hover for
+  // mouse users (never on touch, where the swipe owns this gesture).
+  const remove = el('button', {
+    type: 'button',
+    class: 'row-delete',
+    'aria-label': `Delete ${reminder.title}`,
+    html: ICON('x', 'ic'),
+    onclick: (event) => { event.stopPropagation(); deleteReminderSwipe(reminder); },
+  });
+
   return el('div', {
     class: 'reminder' + (reminder.completed ? ' done' : ''),
     style: { '--c': color },
     'data-reminder-id': reminder.id,
     onclick: () => openEditor(reminder.id),
-  }, [check, body]);
-}
-
-async function toggleUrgent(reminder) {
-  try {
-    await api('/api/reminders/' + reminder.id, {
-      method: 'PATCH',
-      body: { urgent: !reminder.urgent },
-    });
-    await loadState();
-    render();
-    toast(reminder.urgent ? 'Removed from Flagged' : 'Flagged');
-  } catch (err) {
-    toast(err.message);
-  }
+  }, [check, body, remove]);
 }
 
 function escapeHtml(value) {
@@ -1596,9 +1618,18 @@ async function deleteReminder() {
 
 /* ---------------- Lists ---------------- */
 
+function nextListColor() {
+  // Pre-select the first palette color no list uses yet, so every list
+  // starts distinct. When all 15 are taken, rotate through the palette.
+  const used = new Set(state.lists.map((list) => list.color));
+  const free = COLORS.find((color) => !used.has(color));
+  if (free) return free;
+  return COLORS[state.lists.length % COLORS.length];
+}
+
 function openListSheet(list) {
   state.editingListId = list ? list.id : null;
-  state.selectedColor = list ? list.color : 'blue';
+  state.selectedColor = list ? list.color : nextListColor();
   $('#list-heading').textContent = list ? 'Edit List' : 'New List';
   $('#l-name').value = list ? list.name : '';
   $('#l-delete').hidden = !list;
@@ -1839,8 +1870,9 @@ function trapSheetTab(event) {
   }
 }
 
-// Swipe on rows: right completes, left flags. The circle and flag buttons
-// stay as the always-available fallback; links and buttons opt out.
+// Swipe on rows: right completes, left deletes (with a confirm, Apple-style).
+// The circle, editor, and hover delete button stay as always-available
+// fallbacks; links and buttons opt out of swipe.
 let swipeStart = null;
 
 $('#content').addEventListener('touchstart', (event) => {
@@ -1872,8 +1904,21 @@ $('#content').addEventListener('touchend', (event) => {
   const reminder = state.reminders.find((item) => item.id === id);
   if (!reminder || reminder.completed) return;
   if (dx > 0) toggleCompleted(reminder);
-  else toggleUrgent(reminder);
+  else deleteReminderSwipe(reminder);
 }, { passive: true });
+
+async function deleteReminderSwipe(reminder) {
+  const title = reminder.title.length > 60 ? reminder.title.slice(0, 60) + '…' : reminder.title;
+  if (!window.confirm(`Delete "${title}"?`)) return;
+  try {
+    await api('/api/reminders/' + reminder.id, { method: 'DELETE' });
+    await loadState();
+    render();
+    toast('Reminder deleted');
+  } catch (err) {
+    toast(err.message);
+  }
+}
 
 /* ---------------- Theme & settings ---------------- */
 

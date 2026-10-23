@@ -584,6 +584,32 @@ body.list-dragging .list-grip { cursor: grabbing; }
 
 .reminder:hover .check { border-color: var(--c); }
 
+.row-delete {
+  flex: none;
+  align-self: center;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s, color 0.15s;
+}
+
+.row-delete .ic { width: 15px; height: 15px; }
+
+.reminder:hover .row-delete,
+.row-delete:focus-visible { opacity: 0.8; }
+
+.row-delete:hover { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); opacity: 1; }
+
+@media (hover: none) {
+  .row-delete { display: none; }
+}
+
 .check .ic { width: 13px; height: 13px; opacity: 0; }
 .reminder.done .check { background: var(--c); border-color: var(--c); }
 .reminder.done .check .ic { opacity: 1; }
