@@ -235,6 +235,19 @@ function formatDue(reminder) {
   return { text: day + time, overdue };
 }
 
+function formatRecordDate(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 function listById(id) {
   return state.lists.find((list) => list.id === id) || null;
 }
@@ -1193,6 +1206,15 @@ function reminderRow(reminder, options = {}) {
       html: ICON('calendar', 'ic') + `<span>${escapeHtml(due.text)}</span>`,
     }));
   }
+  if (reminder.completed && reminder.completed_at) {
+    const completedText = formatRecordDate(reminder.completed_at);
+    if (completedText) {
+      meta.append(el('span', {
+        class: 'meta-completed',
+        html: ICON('done', 'ic') + `<span>Completed ${escapeHtml(completedText)}</span>`,
+      }));
+    }
+  }
   const rule = parseRuleClient(reminder.repeat_rule);
   if (rule.type !== 'none') {
     meta.append(el('span', {
@@ -1473,6 +1495,20 @@ function syncRepeatRows() {
   $('#series-section').hidden = !editing || !recurring;
 }
 
+function syncRecordRows() {
+  const reminder = state.editingId
+    ? state.reminders.find((item) => item.id === state.editingId)
+    : null;
+  const added = reminder ? formatRecordDate(reminder.created_at) : '';
+  $('#e-added-row').hidden = !added;
+  $('#e-added-value').textContent = added;
+  const completed = reminder && reminder.completed && $('#e-completed').checked
+    ? formatRecordDate(reminder.completed_at)
+    : '';
+  $('#e-completed-date-row').hidden = !completed;
+  $('#e-completed-value').textContent = completed;
+}
+
 function renderSettingsZones(selected) {
   const select = $('#set-default-zone');
   if (!select) return;
@@ -1679,6 +1715,7 @@ function openEditor(id) {
 
   const editing = Boolean(reminder);
   $('#e-completed').checked = editing && reminder.completed;
+  syncRecordRows();
   $('#e-delete').hidden = !editing;
   renderEditorLinks();
   syncSnoozeRow();
@@ -2648,6 +2685,7 @@ $('#search-form').addEventListener('submit', (event) => {
 
 $('#editor-form').addEventListener('submit', saveEditor);
 $('#e-delete').addEventListener('click', deleteReminder);
+$('#e-completed').addEventListener('change', syncRecordRows);
 $('#e-date-on').addEventListener('change', () => { syncDateTimeRows(); markScheduleManual(); });
 $('#e-time-on').addEventListener('change', () => { syncDateTimeRows(); markScheduleManual(); });
 $('#e-repeat').addEventListener('change', () => onRepeatChange(true));
@@ -2655,8 +2693,7 @@ $('#e-repeat-interval').addEventListener('change', () => { syncRepeatRows(); mar
 $('#e-repeat-unit').addEventListener('change', () => { syncRepeatRows(); markScheduleManual(); });
 $('#e-model').addEventListener('change', syncModelRows);
 $('#e-zone').addEventListener('change', () => { updateZoneVisual(); syncModelRows(); });
-$('#e-snooze-btn').addEventListener('click', toggleEditorSnooze);
-$('#e-skip-btn').addEventListener('click', skipCurrentOccurrence);
+$('#e-snooze-btn').addEventListener('click', toggleEditorSnooze);$('#e-skip-btn').addEventListener('click', skipCurrentOccurrence);
 $('#scope-occurrence').addEventListener('click', () => setScope('occurrence'));
 $('#scope-series').addEventListener('click', () => setScope('series'));
 $('#e-parse-chip').addEventListener('click', clearParse);

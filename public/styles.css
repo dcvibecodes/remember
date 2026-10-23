@@ -877,6 +877,8 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .meta-edited { font-style: italic; }
 .meta-snoozed { display: inline-flex; align-items: center; gap: 5px; }
 .meta-snoozed .ic { width: 12px; height: 12px; }
+.meta-completed { display: inline-flex; align-items: center; gap: 5px; }
+.meta-completed .ic { width: 12px; height: 12px; }
 
 .reminder-notes {
   font-size: 0.75rem;
