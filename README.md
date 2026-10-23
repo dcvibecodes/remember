@@ -45,7 +45,11 @@ A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due
 - **Unified Home** — one full-width Home panel on web and mobile, with a centered 60vw desktop column (max 1100px), plain-text Sort/Order controls, visible drag grips, and a New List text button. The old sidebar/card-grid layout is gone.
 - **Fixed menu position** — the hamburger now stays at the exact same top-right position on Home and inside a list; it no longer jumps to the left.
 - **Self-hosted fonts** — Fraunces and Outfit are served from `/fonts` and precached by the service worker. No Google Fonts requests, so the display typography is identical on web/mobile and works offline.
-- **Service worker** — cache bumped to `remember-v1.8.12`.
+- **Service worker** — cache bumped to `remember-v1.9.0`.
+
+## What's New in v1.9.0
+
+- **Token API profiles** — new tokens are **read-only** by default; **read + write** is an explicit opt-in with a warning in Settings. Tokens created before profiles keep exactly their old capabilities under a migration-only `legacy` profile, and the owner can upgrade any token (`legacy` → read/write, read ↔ write) from Settings — the only way a token's capability ever changes.
 
 ## Features
 
@@ -57,7 +61,7 @@ A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due
 - Time models: fixed instant, floating wall-clock (default; follows the device's last-synced zone), or zone-anchored (with a styled Time zone picker in the editor). Settings has a default model and default zone; changing them affects new reminders only, never existing ones.
 - Snooze (in-app button + notification actions where supported). Due rows group their actions under a clear **Snooze until** label: 1 hour, Today/Tomorrow, or Next occurrence for repeating reminders. Opt-in re-push with quiet hours.
 - Token API so external agents can list, add, and complete reminders without a browser.
-- Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
+- Completed reminders remain visible for 30 days in the UI and `GET /api/state`; older records stay in SQLite and are still returned by `GET /api/reminders` (including the complete-snapshot mode). Per-list Show/Hide-completed choice is remembered.
 - Deleting is inline (no browser dialogs): on touch, swipe any row left — including completed rows — to reveal the red Delete action (centered label), tap it once for “Confirm?”, tap again to delete; swipe right closes the reveal. On the web there is no swipe; hover the row and click the ×, then “Confirm?”. The card slides away when deleted.
 - Search across active reminders.
 - Desktop uses a centered 60vw column (max 1100px) with one Home panel; reminders fill the column with a fixed FAB. There is no permanent sidebar.
@@ -145,7 +149,21 @@ Authenticated routes require the `remember.sid` session cookie. State-changing r
 - `POST /api/password`
 - `POST /api/logout`
 
-Personal access tokens (`Authorization: Bearer …`, created in Settings) may read lists/reminders/state, create reminders idempotently, and complete them — nothing else.
+Personal access tokens (`Authorization: Bearer $TEST_TOKEN`, created in Settings) come in three profiles. A bad bearer is rejected with `401` on every `/api` route; token responses are never cached (`Cache-Control: no-store`); use tokens only over HTTPS — they are bearer secrets.
+
+- **read** (default for new tokens): `GET /lists`, `/reminders`, `/reminders/:id`, `/reminders/:id/occurrences`, `/state`, plus `POST /parse` (read-only natural-language date parsing, same engine as the editor).
+- **write**: everything in read, plus idempotent `POST /reminders`, full-edit `PATCH /reminders/:id`, and `POST /reminders/:id/snooze|skip|reschedule`. Every write-profile mutation REQUIRES an `Idempotency-Key` header (1–200 chars) and `base_revision` + `base_epoch` (see below).
+- **legacy** (migration-only, never selectable): exactly the pre-profile capabilities — reads, key-optional creates, and complete-only PATCH.
+
+`GET /api/tokens` shows each token's profile (never hashes); the owner changes profiles in Settings (`POST /api/tokens/:id/profile`, session-only). Deleting reminders, managing lists, settings, token management, import/export, password, and push stay session-only for every profile.
+
+**Write-protocol (write profile only).** First execution of every mutation needs `base_revision` (integer) and `base_epoch` (string); missing or wrongly typed → `400`. The server checks `base_epoch` against its `store_epoch` setting (regenerated on every backup import, nowhere else) → mismatch is `409 {"error": "Store was restored since your read"}` — never bypassed. Mutations apply as one atomic compare-and-write (`revision = revision + 1` in the same statement); a stale base → `409 {"error": "Reminder changed since your read", "reminder": <current row>}`. Replays (same key + byte-identical body) return `200 {"deduplicated": true, "original_status", "result"}` where `result` is the FROZEN first-execution outcome (historical — follow up with `GET /api/reminders/:id` for current state); a retried snooze keeps its original absolute time, never recomputed. Same key with a different raw payload → `409`. Keys are namespaced per token and per concrete route, survive reminder deletion (replay then adds `"deleted": true`), and the fingerprint covers the raw request only — resolved defaults and server-computed targets are frozen at first execution, so replaying the same raw request is stable across Settings changes, list renames, and clock moves. Token bodies are strictly validated (unknown fields and wrong types → `400` naming the field); session callers keep their lenient behavior.
+
+**Recurring series (write profile).** `PATCH {"completed": true}` and `POST …/skip` on a recurring reminder must include `occurrence_at`. If it equals the current `due_at`, the operation proceeds (same-occurrence duplicates are harmless). If it differs and that occurrence is already recorded done, the server answers `200 {"ok": true, "alreadyDone": true}` without advancing again (this recognition bypasses only the revision check, never the epoch guard). Otherwise → `409 {"error": "Stale occurrence", "currentDue"}`.
+
+**Change tracking.** Every reminder carries `revision` (monotonic integer, bumped by every content/state mutation including UI edits and occurrence-scope edits — never by push bookkeeping) and `updated_at`/`notified_at`. `GET /api/reminders` with NO filters returns the COMPLETE snapshot (every row, `ORDER BY id`, `complete: true`, top-level `store_epoch`): diff two snapshots by `id` to see everything, including hand edits from the UI. Only absence from that unfiltered snapshot implies deletion; filtered/limited responses are convenience reads, not change signals. No cursors, no feeds, no polling promises.
+
+**Agent conduct.** A token profile is technical capability, not permission: only create, edit, complete, or snooze reminders the owner has explicitly instructed, and never invent operations on their own.
 
 ## Deployment
 

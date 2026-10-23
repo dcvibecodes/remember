@@ -2418,16 +2418,48 @@ async function renderTokenList() {
     return;
   }
   for (const token of tokens) {
+    const profileLabel = token.profile === 'write' ? 'read + write'
+      : token.profile === 'legacy' ? 'legacy (pre-profiles)'
+      : 'read only';
     const row = el('div', { class: 'token-row' }, [
       el('span', { class: 'token-name', text: token.name || 'token' }),
       el('span', {
         class: 'token-meta',
         text: token.revoked_at
-          ? 'revoked'
-          : `used ${token.last_used_at ? new Date(token.last_used_at).toLocaleDateString() : 'never'}`,
+          ? `revoked · ${profileLabel}`
+          : `${profileLabel} · used ${token.last_used_at ? new Date(token.last_used_at).toLocaleDateString() : 'never'}`,
       }),
     ]);
     if (!token.revoked_at) {
+      const targets = token.profile === 'legacy' ? ['read', 'write']
+        : token.profile === 'write' ? ['read']
+        : ['write'];
+      const select = el('select', {
+        class: 'secondary-btn small-btn',
+        'aria-label': `Change access for ${token.name || 'token'}`,
+      });
+      for (const target of targets) {
+        select.append(el('option', {
+          value: target,
+          text: target === 'write' ? 'read + write' : 'read only',
+        }));
+      }
+      row.append(select);
+      row.append(el('button', {
+        type: 'button',
+        class: 'secondary-btn small-btn',
+        text: 'Change access',
+        onclick: async () => {
+          if (!window.confirm(`Change "${token.name || 'token'}" to "${select.value === 'write' ? 'read + write' : 'read only'}"? Capability changes apply immediately.`)) return;
+          try {
+            await api('/api/tokens/' + token.id + '/profile', { method: 'POST', body: { profile: select.value } });
+            await renderTokenList();
+            toast('Token access changed');
+          } catch (err) {
+            toast(err.message);
+          }
+        },
+      }));
       row.append(el('button', {
         type: 'button',
         class: 'secondary-btn small-btn',
@@ -2450,8 +2482,9 @@ async function renderTokenList() {
 
 async function generateToken() {
   const name = $('#token-name').value.trim() || 'agent';
+  const profile = $('#token-profile') ? $('#token-profile').value : 'read';
   try {
-    const result = await api('/api/tokens', { method: 'POST', body: { name } });
+    const result = await api('/api/tokens', { method: 'POST', body: { name, profile } });
     $('#token-value').textContent = result.token;
     $('#token-once').hidden = false;
     $('#token-name').value = '';

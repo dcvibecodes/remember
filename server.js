@@ -176,18 +176,15 @@ function bearerToken(req) {
 }
 
 async function tokenAuth(req, res, next) {
+  if (req.token) return next(); // Already validated by the bearer pre-check.
   const raw = bearerToken(req);
   if (!raw) return next();
   try {
-    const row = await db.get(
-      'SELECT id, name FROM personal_access_tokens WHERE token_hash = ? AND revoked_at IS NULL',
-      [hashToken(raw)]
-    );
+    const row = await lookupToken(raw);
     if (!row) return res.status(401).json({ error: 'Invalid or revoked token' });
     req.token = row;
     req.tokenHash = hashToken(raw);
-    db.run('UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?',
-      [new Date().toISOString(), row.id]).catch(() => {});
+    touchToken(row.id);
     return next();
   } catch (err) {
     return next(err);
@@ -196,6 +193,124 @@ async function tokenAuth(req, res, next) {
 
 function denyToken(res) {
   return res.status(403).json({ error: 'This token is not allowed to use this endpoint' });
+}
+
+async function lookupToken(raw) {
+  return db.get(
+    'SELECT id, name, profile FROM personal_access_tokens WHERE token_hash = ? AND revoked_at IS NULL',
+    [hashToken(raw)]
+  );
+}
+
+function touchToken(id) {
+  db.run(
+    'UPDATE personal_access_tokens SET last_used_at = ? WHERE id = ?',
+    [new Date().toISOString(), id]
+  ).catch(() => {});
+}
+
+// Canonical JSON (object keys sorted, recursive) for idempotency payload
+// fingerprints. Fingerprints cover the RAW client-supplied body fields,
+// excluding idempotency_key itself — never resolved defaults or
+// server-computed targets.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (value !== null && typeof value === 'object') {
+    return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson(value[k])}`).join(',')}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function payloadFingerprint(body) {
+  const copy = { ...(body || {}) };
+  delete copy.idempotency_key;
+  return crypto.createHash('sha256').update(canonicalJson(copy)).digest('hex');
+}
+
+function idempotencyKeyFrom(req) {
+  const key = req.get('Idempotency-Key') ?? req.body?.idempotency_key;
+  if (typeof key !== 'string' || !key.trim() || key.trim().length > 200) return null;
+  return key.trim();
+}
+
+// Server-managed store epoch: regenerated on every completed backup import
+// and nowhere else. Guards (id, revision) pairs against restore-coincidence.
+async function getStoreEpoch() {
+  let epoch = await db.getSetting('store_epoch');
+  if (!epoch) {
+    epoch = crypto.randomBytes(16).toString('hex');
+    await db.setSetting('store_epoch', epoch);
+  }
+  return epoch;
+}
+
+// Stored-response idempotency for write-profile token mutations. Claim +
+// validation + mutation + response freeze run as ONE transaction; the HTTP
+// response is sent only after COMMIT.
+async function runTokenWrite(req, res, { route, key, fingerprint, execute }) {
+  const tokenId = req.token.id;
+  const replayEnvelope = async (claim) => {
+    const result = JSON.parse(claim.response_json);
+    const envelope = { deduplicated: true, original_status: claim.status, result };
+    if (claim.reminder_id) {
+      const stillThere = await loadReminder(claim.reminder_id);
+      if (!stillThere) envelope.deleted = true;
+    }
+    return { status: 200, body: envelope };
+  };
+  try {
+    return await db.transaction(async () => {
+      const claim = await db.get(
+        'SELECT payload_hash, response_json, status, reminder_id FROM token_idempotency_keys WHERE token_id = ? AND route = ? AND key = ?',
+        [tokenId, route, key]
+      );
+      if (claim) {
+        if (claim.payload_hash !== fingerprint) {
+          throw tokenWriteError(409, 'Idempotency key reused with a different payload');
+        }
+        const out = await replayEnvelope(claim);
+        return out;
+      }
+      try {
+        await db.run(
+          'INSERT INTO token_idempotency_keys (token_id, route, key, payload_hash, response_json, status, reminder_id, created_at) VALUES (?, ?, ?, ?, NULL, NULL, NULL, ?)',
+          [tokenId, route, key, fingerprint, new Date().toISOString()]
+        );
+      } catch (err) {
+        if (err && err.code === 'SQLITE_CONSTRAINT') {
+          // Lost a race with an identical claim: re-read and answer as replay.
+          const raced = await db.get(
+            'SELECT payload_hash, response_json, status, reminder_id FROM token_idempotency_keys WHERE token_id = ? AND route = ? AND key = ?',
+            [tokenId, route, key]
+          );
+          if (raced && raced.payload_hash === fingerprint) {
+            return replayEnvelope(raced);
+          }
+          throw tokenWriteError(409, 'Idempotency key reused with a different payload');
+        }
+        throw err;
+      }
+      const out = await execute();
+      if (out.status >= 200 && out.status < 300) {
+        await db.run(
+          'UPDATE token_idempotency_keys SET response_json = ?, status = ?, reminder_id = ? WHERE token_id = ? AND route = ? AND key = ?',
+          [JSON.stringify(out.body), out.status, out.reminderId ?? null, tokenId, route, key]
+        );
+        return out;
+      }
+      // Conflicts and validation outcomes freeze nothing: roll the claim
+      // back so the same key stays safely retryable with corrected input.
+      throw { status: out.status, body: out.body, rollbackOnly: true };
+    }).then((out) => res.status(out.status).json(out.body));
+  } catch (err) {
+    if (res.headersSent) return;
+    if (err && err.rollbackOnly) return res.status(err.status).json(err.body);
+    res.status(err.status || 500).json({ error: err.message || 'Server error' });
+  }
+}
+
+function tokenWriteError(status, message) {
+  return Object.assign(new Error(message), { status });
 }
 
 // Push-action signatures: the scheduler signs (reminder, occurrence, action)
@@ -253,7 +368,7 @@ async function completeReminder(id) {
   if (!recurrence.isRecurringRule(rule)) {
     if (reminder.completed) return { advanced: false, reminder };
     await db.run(
-      'UPDATE reminders SET completed = 1, completed_at = ?, snoozed_until = NULL, updated_at = ? WHERE id = ?',
+      'UPDATE reminders SET completed = 1, completed_at = ?, snoozed_until = NULL, updated_at = ?, revision = revision + 1 WHERE id = ?',
       [now, now, id]
     );
     return { advanced: false };
@@ -290,7 +405,7 @@ async function completeReminder(id) {
   ]);
   await db.run(
     `UPDATE reminders SET due_at = ?, notified_at = NULL, last_push_at = NULL,
-       push_count = 0, snoozed_until = NULL, updated_at = ? WHERE id = ?`,
+       push_count = 0, snoozed_until = NULL, updated_at = ?, revision = revision + 1 WHERE id = ?`,
     [next, now, id]
   );
   return { advanced: true, nextDue: next };
@@ -320,7 +435,7 @@ async function skipOccurrence(id) {
   `, [id, reminder.due_at, now]);
   await db.run(
     `UPDATE reminders SET due_at = ?, notified_at = NULL, last_push_at = NULL,
-       push_count = 0, snoozed_until = NULL, updated_at = ? WHERE id = ?`,
+       push_count = 0, snoozed_until = NULL, updated_at = ?, revision = revision + 1 WHERE id = ?`,
     [next, now, id]
   );
   return { nextDue: next };
@@ -340,7 +455,7 @@ async function snoozeReminder(id, untilISO) {
     throw err;
   }
   const now = new Date().toISOString();
-  await db.run('UPDATE reminders SET snoozed_until = ?, updated_at = ? WHERE id = ?',
+  await db.run('UPDATE reminders SET snoozed_until = ?, updated_at = ?, revision = revision + 1 WHERE id = ?',
     [until.toISOString(), now, id]);
   return { snoozedUntil: until.toISOString() };
 }
@@ -352,7 +467,7 @@ async function clearSnooze(id) {
     err.status = 404;
     throw err;
   }
-  await db.run('UPDATE reminders SET snoozed_until = NULL, updated_at = ? WHERE id = ?',
+  await db.run('UPDATE reminders SET snoozed_until = NULL, updated_at = ?, revision = revision + 1 WHERE id = ?',
     [new Date().toISOString(), id]);
   return { ok: true };
 }
@@ -410,7 +525,7 @@ async function rescheduleReminder(id, target) {
   }
   const now = new Date().toISOString();
   const fields = ['due_at = ?', 'has_time = ?', 'notified_at = NULL',
-    'last_push_at = NULL', 'push_count = 0', 'snoozed_until = NULL', 'updated_at = ?'];
+    'last_push_at = NULL', 'push_count = 0', 'snoozed_until = NULL', 'updated_at = ?', 'revision = revision + 1'];
   const params = [dueAt, hasTime, now, id];
   if (recurrence.isRecurringRule(rule) && (rule.type === 'monthly' || rule.type === 'yearly' || (rule.type === 'custom' && rule.unit === 'months'))) {
     const anchored = recurrence.anchorRule({ ...rule, anchorDay: undefined, anchorMonth: undefined }, dueAt, effZone);
@@ -447,6 +562,7 @@ async function main() {
     secret = crypto.randomBytes(32).toString('hex');
     await db.setSetting(SESSION_SECRET_KEY, secret);
   }
+  await getStoreEpoch();
 
   app.use(session({
     name: 'remember.sid',
@@ -478,6 +594,34 @@ async function main() {
       }
     },
   }));
+
+  // Bearer pre-check: runs before EVERY /api route, including the early
+  // auth/push routes below that predate tokenAuth. No Authorization header
+  // -> untouched (public routes stay public, HMAC push actions stay
+  // bearer-free). A malformed, unknown, or revoked bearer -> 401 everywhere.
+  // A valid bearer may use the harmless early GETs; the early POSTs stay
+  // session/HMAC-only and reject token callers with the scope error.
+  // Anything else passes through to the normal token/session chain below.
+  const EARLY_ROUTES = new Set(['GET /health', 'GET /session', 'POST /setup', 'POST /login', 'POST /push/action']);
+  app.use('/api', async (req, res, next) => {
+    const header = req.get('authorization') || '';
+    if (!header) return next();
+    const raw = bearerToken(req);
+    if (!raw) return res.status(401).json({ error: 'Invalid or revoked token' });
+    try {
+      const row = await lookupToken(raw);
+      if (!row) return res.status(401).json({ error: 'Invalid or revoked token' });
+      req.token = row;
+      req.tokenHash = hashToken(raw);
+      touchToken(row.id);
+      const key = `${req.method} ${req.path}`;
+      if (!EARLY_ROUTES.has(key)) return next();
+      if (req.method === 'GET') return next();
+      return denyToken(res);
+    } catch (err) {
+      return next(err);
+    }
+  });
 
   app.get('/api/health', (req, res) => {
     res.json({ ok: true, version: VERSION });
@@ -569,7 +713,7 @@ async function main() {
 
   const tokenLimiter = rateLimit({
     windowMs: 60 * 60 * 1000,
-    limit: 300,
+    limit: Number(process.env.TOKEN_RATE_LIMIT) || 300,
     keyGenerator: (req) => req.tokenHash || ipKeyGenerator(req.ip),
     standardHeaders: 'draft-7',
     legacyHeaders: false,
@@ -588,15 +732,40 @@ async function main() {
     return res.status(401).json({ error: 'Not signed in' });
   });
 
-  // Token scope enforcement: personal access tokens may only read lists,
-  // reminders, and state, create reminders, and complete them. Everything
-  // else (deletes, lists, password, push, settings, tokens, import/export,
-  // actions) is session-only. (req.path is mount-relative here.)
+  // Token scope enforcement by profile (default-deny). `read` is the
+  // default for new tokens; `write` is opt-in; `legacy` keeps exactly the
+  // capabilities tokens had before profiles existed. Deletes, list
+  // management, settings, token management, import/export, password, push
+  // management, and logout stay session-only for every profile, no
+  // exceptions. (req.path is mount-relative here.)
+  const REMINDER_ID = /^\/reminders\/\d+$/;
+  const OCCURRENCES = /^\/reminders\/\d+\/occurrences$/;
+  const REMINDER_ACTION = /^\/reminders\/\d+\/(snooze|skip|reschedule)$/;
   app.use('/api', (req, res, next) => {
     if (!req.token) return next();
-    if (req.method === 'GET' && ['/lists', '/reminders', '/state'].includes(req.path)) return next();
-    if (req.method === 'POST' && req.path === '/reminders') return next();
-    if (req.method === 'PATCH' && req.path.startsWith('/reminders/')) return next();
+    const profile = req.token.profile || 'legacy';
+    if (profile !== 'read' && profile !== 'write' && profile !== 'legacy') {
+      return denyToken(res);
+    }
+    if (req.method === 'GET') {
+      if (['/lists', '/reminders', '/state'].includes(req.path)) return next();
+      if ((profile === 'read' || profile === 'write')
+        && (REMINDER_ID.test(req.path) || OCCURRENCES.test(req.path))) return next();
+      return denyToken(res);
+    }
+    if (req.method === 'POST' && req.path === '/parse'
+      && (profile === 'read' || profile === 'write')) return next();
+    if (profile === 'legacy') {
+      if (req.method === 'POST' && req.path === '/reminders') return next();
+      if (req.method === 'PATCH' && req.path.startsWith('/reminders/')) return next();
+      return denyToken(res);
+    }
+    if (profile === 'write') {
+      if (req.method === 'POST' && req.path === '/reminders') return next();
+      if (req.method === 'PATCH' && REMINDER_ID.test(req.path)) return next();
+      if (req.method === 'POST' && REMINDER_ACTION.test(req.path)) return next();
+      return denyToken(res);
+    }
     return denyToken(res);
   });
 
@@ -608,6 +777,15 @@ async function main() {
     const token = req.get('x-csrf-token');
     if (!token || token !== req.session.csrfToken) {
       return res.status(403).json({ error: 'Invalid CSRF token. Please refresh and try again.' });
+    }
+    next();
+  });
+
+  // Token responses must never be cached anywhere: every token-authenticated
+  // response and every token-management response carries no-store.
+  app.use('/api', (req, res, next) => {
+    if (req.token || req.path.startsWith('/tokens')) {
+      res.setHeader('Cache-Control', 'no-store');
     }
     next();
   });
@@ -672,7 +850,7 @@ async function main() {
         if (!oldZone || new Date(reminder.due_at).getTime() <= nowMs) continue;
         try {
           const movedDue = recurrence.recomputeInZone(reminder.due_at, oldZone, toZone);
-          await db.run('UPDATE reminders SET due_at = ?, time_zone = ?, updated_at = ? WHERE id = ?',
+          await db.run('UPDATE reminders SET due_at = ?, time_zone = ?, updated_at = ?, revision = revision + 1 WHERE id = ?',
             [movedDue, toZone, new Date().toISOString(), reminder.id]);
           moved += 1;
         } catch {
@@ -687,7 +865,7 @@ async function main() {
   app.get('/api/tokens', async (req, res) => {
     if (req.token) return denyToken(res);
     const rows = await db.all(
-      'SELECT id, name, created_at, last_used_at, revoked_at FROM personal_access_tokens ORDER BY id'
+      'SELECT id, name, profile, created_at, last_used_at, revoked_at FROM personal_access_tokens ORDER BY id'
     );
     res.json({ tokens: rows });
   });
@@ -695,15 +873,41 @@ async function main() {
   app.post('/api/tokens', async (req, res) => {
     if (req.token) return denyToken(res);
     const name = text(req.body.name, 80) || 'agent';
+    // Only read (default) or write may be selected. `legacy` is a
+    // migration-only landing state and is never a creation target.
+    const profile = req.body.profile === undefined ? 'read' : String(req.body.profile);
+    if (profile !== 'read' && profile !== 'write') {
+      return res.status(400).json({ error: 'profile must be read or write' });
+    }
     // 48 random bytes, base64url: unguessable, URL-safe. Only the SHA-256
     // hash is stored — the raw value below is shown exactly once.
     const raw = crypto.randomBytes(48).toString('base64url');
     const now = new Date().toISOString();
     const result = await db.run(
-      'INSERT INTO personal_access_tokens (name, token_hash, created_at) VALUES (?, ?, ?)',
-      [name, hashToken(raw), now]
+      'INSERT INTO personal_access_tokens (name, token_hash, profile, created_at) VALUES (?, ?, ?, ?)',
+      [name, hashToken(raw), profile, now]
     );
-    res.status(201).json({ id: result.lastID, name, token: raw, created_at: now });
+    res.status(201).json({ id: result.lastID, name, profile, token: raw, created_at: now });
+  });
+
+  // Owner-only profile changes: the ONLY way a token's capability changes.
+  // Allowed: legacy -> read/write, read <-> write. `legacy` is never a
+  // target and no token can ever land in it except by the one-time
+  // migration backfill.
+  app.post('/api/tokens/:id/profile', async (req, res) => {
+    if (req.token) return denyToken(res);
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid token' });
+    const profile = String(req.body.profile || '');
+    if (profile !== 'read' && profile !== 'write') {
+      return res.status(400).json({ error: 'profile must be read or write' });
+    }
+    const row = await db.get('SELECT id, profile, revoked_at FROM personal_access_tokens WHERE id = ?', [id]);
+    if (!row) return res.status(404).json({ error: 'Token not found' });
+    if (row.revoked_at) return res.status(400).json({ error: 'Token is revoked' });
+    if (row.profile === profile) return res.json({ ok: true, profile });
+    await db.run('UPDATE personal_access_tokens SET profile = ? WHERE id = ?', [profile, id]);
+    res.json({ ok: true, profile });
   });
 
   app.post('/api/tokens/:id/revoke', async (req, res) => {
@@ -726,7 +930,7 @@ async function main() {
     const lists = await db.all('SELECT id, name, color, sort_order, created_at FROM lists ORDER BY sort_order, id');
     const reminders = await db.all(`SELECT id, list_id, title, notes, due_at, has_time, completed,
       completed_at, urgent, repeat_rule, time_model, time_zone, snoozed_until,
-      sort_order, created_at, updated_at FROM reminders ORDER BY id`);
+      sort_order, created_at, updated_at, revision FROM reminders ORDER BY id`);
     const occurrences = await db.all(
       'SELECT reminder_id, occurrence_at, status, title, notes, completed_at, created_at FROM reminder_occurrences ORDER BY id'
     );
@@ -796,8 +1000,8 @@ async function main() {
           INSERT INTO reminders
             (id, list_id, title, notes, due_at, has_time, completed, completed_at, urgent,
              repeat_rule, time_model, time_zone, snoozed_until, notified_at, last_push_at, push_count,
-             sort_order, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
+             sort_order, created_at, updated_at, revision)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
         `, [
           reminder.id, reminder.list_id, String(reminder.title).slice(0, 500),
           String(reminder.notes || '').slice(0, 5000),
@@ -811,6 +1015,7 @@ async function main() {
           Number.isInteger(reminder.sort_order) ? reminder.sort_order : 0,
           typeof reminder.created_at === 'string' ? reminder.created_at : new Date().toISOString(),
           typeof reminder.updated_at === 'string' ? reminder.updated_at : new Date().toISOString(),
+          Number.isInteger(reminder.revision) && reminder.revision >= 0 ? reminder.revision : 0,
         ]);
         knownReminders.add(reminder.id);
         counts.remindersAdded += 1;
@@ -839,12 +1044,12 @@ async function main() {
         counts.occurrencesAdded += 1;
       } catch { counts.occurrencesSkipped += 1; }
     }
+    await db.setSetting('store_epoch', crypto.randomBytes(16).toString('hex'));
     res.json({ ok: true, ...counts });
   });
 
   // Per-occurrence history for one recurring reminder (newest first).
   app.get('/api/reminders/:id/occurrences', async (req, res) => {
-    if (req.token) return denyToken(res);
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid reminder' });
     const rows = await db.all(
@@ -855,9 +1060,152 @@ async function main() {
     res.json({ occurrences: rows });
   });
 
+  // ---- Write-profile token handlers for occurrence actions ----
+  function validateWriteSkip(body) {
+    for (const key of Object.keys(body || {})) {
+      if (!['occurrence_at', 'base_revision', 'base_epoch'].includes(key)) {
+        throw tokenWriteError(400, `Unknown field: ${key}`);
+      }
+    }
+    if (body.occurrence_at !== undefined && typeof body.occurrence_at !== 'string') {
+      throw tokenWriteError(400, 'Invalid occurrence_at');
+    }
+    requireBase(body);
+  }
+
+  async function writeSkip(req, res, id) {
+    const body = req.body || {};
+    try {
+      validateWriteSkip(body);
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+    const key = idempotencyKeyFrom(req);
+    if (!key) return res.status(400).json({ error: 'Idempotency-Key header is required for API writes' });
+    const route = `POST /api/reminders/${id}/skip`;
+    return runTokenWrite(req, res, {
+      route, key, fingerprint: payloadFingerprint(body),
+      execute: async () => {
+        const current = await loadReminder(id);
+        if (!current) return { status: 404, body: { error: 'Reminder not found' } };
+        const epochGuard = await guardEpoch(body.base_epoch);
+        if (epochGuard) return epochGuard;
+        const occGuard = await guardOccurrence(id, current, body.occurrence_at, 'skip');
+        if (occGuard) return occGuard;
+        const revGuard = await guardRevision(current, body.base_revision);
+        if (revGuard) return revGuard;
+        try {
+          const result = await skipOccurrence(id);
+          return { status: 200, body: { ok: true, nextDue: result.nextDue }, reminderId: id };
+        } catch (err) {
+          return { status: err.status || 500, body: { error: err.message || 'Server error' } };
+        }
+      },
+    });
+  }
+
+  function validateWriteSnooze(body) {
+    for (const key of Object.keys(body || {})) {
+      if (!['hours', 'clear', 'base_revision', 'base_epoch'].includes(key)) {
+        throw tokenWriteError(400, `Unknown field: ${key}`);
+      }
+    }
+    if (body.hours !== undefined && typeof body.hours !== 'number') {
+      throw tokenWriteError(400, 'Invalid hours');
+    }
+    if (body.clear !== undefined && typeof body.clear !== 'boolean') {
+      throw tokenWriteError(400, 'Invalid clear');
+    }
+    requireBase(body);
+  }
+
+  async function writeSnooze(req, res, id) {
+    const body = req.body || {};
+    try {
+      validateWriteSnooze(body);
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+    const key = idempotencyKeyFrom(req);
+    if (!key) return res.status(400).json({ error: 'Idempotency-Key header is required for API writes' });
+    const route = `POST /api/reminders/${id}/snooze`;
+    return runTokenWrite(req, res, {
+      route, key, fingerprint: payloadFingerprint(body),
+      execute: async () => {
+        const current = await loadReminder(id);
+        if (!current) return { status: 404, body: { error: 'Reminder not found' } };
+        const epochGuard = await guardEpoch(body.base_epoch);
+        if (epochGuard) return epochGuard;
+        const revGuard = await guardRevision(current, body.base_revision);
+        if (revGuard) return revGuard;
+        try {
+          if (body.clear) {
+            await clearSnooze(id);
+            return { status: 200, body: { ok: true, snoozedUntil: null }, reminderId: id };
+          }
+          const hours = body.hours === undefined ? 1 : Number(body.hours);
+          if (!Number.isFinite(hours) || hours <= 0 || hours > 72) {
+            return { status: 400, body: { error: 'Snooze hours must be between 0 and 72' } };
+          }
+          const result = await snoozeReminder(id, new Date(Date.now() + hours * 3600 * 1000).toISOString());
+          return { status: 200, body: { ok: true, snoozedUntil: result.snoozedUntil }, reminderId: id };
+        } catch (err) {
+          return { status: err.status || 500, body: { error: err.message || 'Server error' } };
+        }
+      },
+    });
+  }
+
+  function validateWriteReschedule(body) {
+    for (const key of Object.keys(body || {})) {
+      if (!['date', 'base_revision', 'base_epoch'].includes(key)) {
+        throw tokenWriteError(400, `Unknown field: ${key}`);
+      }
+    }
+    if (body.date !== undefined && typeof body.date !== 'string') {
+      throw tokenWriteError(400, 'Invalid date');
+    }
+    requireBase(body);
+  }
+
+  async function writeReschedule(req, res, id) {
+    const body = req.body || {};
+    try {
+      validateWriteReschedule(body);
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+    const key = idempotencyKeyFrom(req);
+    if (!key) return res.status(400).json({ error: 'Idempotency-Key header is required for API writes' });
+    const route = `POST /api/reminders/${id}/reschedule`;
+    return runTokenWrite(req, res, {
+      route, key, fingerprint: payloadFingerprint(body),
+      execute: async () => {
+        const current = await loadReminder(id);
+        if (!current) return { status: 404, body: { error: 'Reminder not found' } };
+        const epochGuard = await guardEpoch(body.base_epoch);
+        if (epochGuard) return epochGuard;
+        const revGuard = await guardRevision(current, body.base_revision);
+        if (revGuard) return revGuard;
+        if (!current.due_at) {
+          return { status: 400, body: { error: 'Only dated reminders can be rescheduled' } };
+        }
+        try {
+          const result = await rescheduleReminder(id, body.date);
+          return { status: 200, body: { ok: true, dueAt: result.dueAt }, reminderId: id };
+        } catch (err) {
+          return { status: err.status || 500, body: { error: err.message || 'Server error' } };
+        }
+      },
+    });
+  }
+
   app.post('/api/reminders/:id/skip', async (req, res) => {
-    if (req.token) return denyToken(res);
     const id = parseId(req.params.id);
+    if (req.token && (req.token.profile || 'legacy') === 'write') {
+      return writeSkip(req, res, id);
+    }
+    if (req.token) return denyToken(res);
     if (!id) return res.status(400).json({ error: 'Invalid reminder' });
     try {
       const result = await skipOccurrence(id);
@@ -868,8 +1216,11 @@ async function main() {
   });
 
   app.post('/api/reminders/:id/snooze', async (req, res) => {
-    if (req.token) return denyToken(res);
     const id = parseId(req.params.id);
+    if (req.token && (req.token.profile || 'legacy') === 'write') {
+      return writeSnooze(req, res, id);
+    }
+    if (req.token) return denyToken(res);
     if (!id) return res.status(400).json({ error: 'Invalid reminder' });
     try {
       if (req.body.clear) {
@@ -888,8 +1239,11 @@ async function main() {
   });
 
   app.post('/api/reminders/:id/reschedule', async (req, res) => {
-    if (req.token) return denyToken(res);
     const id = parseId(req.params.id);
+    if (req.token && (req.token.profile || 'legacy') === 'write') {
+      return writeReschedule(req, res, id);
+    }
+    if (req.token) return denyToken(res);
     if (!id) return res.status(400).json({ error: 'Invalid reminder' });
     const reminder = await loadReminder(id);
     if (!reminder) return res.status(404).json({ error: 'Reminder not found' });
@@ -906,7 +1260,6 @@ async function main() {
   // time (+ repeat rule). The editor calls this as you type and pre-checks
   // the Date/Time/Repeat controls so you see exactly what will be saved.
   app.post('/api/parse', async (req, res) => {
-    if (req.token) return denyToken(res);
     const input = text(req.body.text, 500);
     if (!input) return res.status(400).json({ error: 'Nothing to parse' });
     const settings = await getSettings();
@@ -985,7 +1338,7 @@ async function main() {
 
   const REMINDER_COLUMNS = `id, list_id, title, notes, due_at, has_time, completed,
     completed_at, urgent, repeat_rule, time_model, time_zone, snoozed_until,
-    last_push_at, push_count, sort_order, created_at`;
+    notified_at, last_push_at, push_count, sort_order, created_at, updated_at, revision`;
 
   app.get('/api/state', async (req, res) => {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
@@ -1022,7 +1375,7 @@ async function main() {
         }
       }
     }
-    res.json({ lists, reminders, settings: await getSettings(), now: new Date().toISOString() });
+    res.json({ lists, reminders, settings: await getSettings(), now: new Date().toISOString(), store_epoch: await getStoreEpoch() });
   });
 
   // Agent + UI reads. Tokens may use these; full rows for UI convenience.
@@ -1036,6 +1389,21 @@ async function main() {
   });
 
   app.get('/api/reminders', async (req, res) => {
+    const storeEpoch = await getStoreEpoch();
+    const hasFilters = req.query.list_id !== undefined || req.query.completed !== undefined
+      || (req.query.q !== undefined && String(req.query.q).trim() !== '')
+      || req.query.limit !== undefined;
+    if (!hasFilters) {
+      // Complete snapshot mode: every reminder, active and full completed
+      // history (no 30-day cutoff), ordered by id. Change awareness is a
+      // client-side diff of two snapshots by id (revision compare). Only
+      // absence from THIS unfiltered response implies deletion; absence
+      // from any filtered or limited response means nothing.
+      const reminders = await db.all(
+        `SELECT ${REMINDER_COLUMNS} FROM reminders ORDER BY id ASC`
+      );
+      return res.json({ reminders, complete: true, store_epoch: storeEpoch });
+    }
     const conditions = [];
     const params = [];
     if (req.query.list_id !== undefined) {
@@ -1067,7 +1435,17 @@ async function main() {
       `SELECT ${REMINDER_COLUMNS} FROM reminders ${where} ORDER BY sort_order, id LIMIT ?`,
       [...params, limit]
     );
-    res.json({ reminders });
+    res.json({ reminders, store_epoch: storeEpoch });
+  });
+
+  app.get('/api/reminders/:id', async (req, res) => {
+    const id = parseId(req.params.id);
+    if (!id) return res.status(400).json({ error: 'Invalid reminder' });
+    const reminder = await db.get(
+      `SELECT ${REMINDER_COLUMNS} FROM reminders WHERE id = ?`, [id]
+    );
+    if (!reminder) return res.status(404).json({ error: 'Reminder not found' });
+    res.json({ reminder });
   });
 
   app.post('/api/lists', async (req, res) => {
@@ -1142,128 +1520,485 @@ async function main() {
     res.json({ ok: true });
   });
 
-  app.post('/api/reminders', async (req, res) => {
-    const title = text(req.body.title, 500);
-    if (!title) return res.status(400).json({ error: 'Title is required' });
-    // Lists can be referenced by id or by name (agents pass names).
-    const listRef = req.body.list_id !== undefined ? req.body.list_id : req.body.list;
+  // Shared reminder-create preparation. strict=false preserves the exact
+  // legacy/session coercion behavior; strict=true rejects unknown fields
+  // and wrong types for write-profile token callers (naming the field).
+  // parity=true resolves an omitted time_model from the owner's Settings
+  // default instead of hardcoding 'fixed'. Throws {status, message}.
+  const CREATE_FIELDS = ['title', 'notes', 'list_id', 'list', 'due_at', 'has_time',
+    'urgent', 'repeat_rule', 'repeat', 'time_model', 'time_zone', 'device_zone',
+    'idempotency_key', 'completed'];
+  function failWith(status, message) {
+    throw Object.assign(new Error(message), { status });
+  }
+  async function prepareReminderCreate(body, { strict, parity, isToken }) {
+    if (strict) {
+      for (const key of Object.keys(body || {})) {
+        if (!CREATE_FIELDS.includes(key)) failWith(400, `Unknown field: ${key}`);
+      }
+      const mustBe = (key, check) => {
+        if (body[key] !== undefined && !check(body[key])) failWith(400, `Invalid ${key}`);
+      };
+      mustBe('title', (v) => typeof v === 'string');
+      mustBe('notes', (v) => typeof v === 'string');
+      mustBe('list_id', (v) => Number.isInteger(v) && v > 0);
+      mustBe('list', (v) => typeof v === 'string');
+      mustBe('due_at', (v) => v === null || typeof v === 'string');
+      mustBe('has_time', (v) => typeof v === 'boolean');
+      mustBe('urgent', (v) => typeof v === 'boolean');
+      mustBe('repeat_rule', (v) => typeof v === 'string' || (v !== null && typeof v === 'object'));
+      mustBe('repeat', (v) => typeof v === 'string' || (v !== null && typeof v === 'object'));
+      mustBe('time_model', (v) => typeof v === 'string');
+      mustBe('time_zone', (v) => v === null || typeof v === 'string');
+      mustBe('device_zone', (v) => typeof v === 'string');
+    }
+    const title = text(body.title, 500);
+    if (!title) failWith(400, 'Title is required');
+    const listRef = body.list_id !== undefined ? body.list_id : body.list;
     const hasListRef = listRef !== undefined && listRef !== null && listRef !== '';
     let list = null;
     try {
       list = await resolveList(listRef);
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message || 'Server error' });
+      failWith(err.status || 500, err.message || 'Server error');
     }
     if (!list && !hasListRef) {
       list = await db.get('SELECT id, name FROM lists WHERE is_system = 1 LIMIT 1');
     }
-    if (!list) return res.status(400).json({ error: 'Choose a list' });
+    if (!list) failWith(400, 'Choose a list');
     const listId = list.id;
 
-    if (req.token && req.body.completed) return denyToken(res);
-
-    const dueAtRaw = normalizeDate(req.body.due_at);
-    if (dueAtRaw === undefined) return res.status(400).json({ error: 'Invalid date' });
-    const hasTime = dueAtRaw && req.body.has_time ? 1 : 0;
-    const urgent = req.body.urgent ? 1 : 0;
-    const completed = !req.token && req.body.completed ? 1 : 0;
+    const dueAtRaw = normalizeDate(body.due_at);
+    if (dueAtRaw === undefined) failWith(400, 'Invalid date');
+    const hasTime = dueAtRaw && body.has_time ? 1 : 0;
+    const urgent = body.urgent ? 1 : 0;
+    const completed = !isToken && body.completed ? 1 : 0;
 
     let rule;
     try {
-      rule = recurrence.parseRepeatRule(req.body.repeat_rule ?? req.body.repeat ?? 'none');
+      rule = recurrence.parseRepeatRule(body.repeat_rule ?? body.repeat ?? 'none');
     } catch (err) {
-      return res.status(err.status || 500).json({ error: err.message || 'Server error' });
+      failWith(err.status || 500, err.message || 'Server error');
     }
     if (recurrence.isRecurringRule(rule) && !dueAtRaw) {
-      return res.status(400).json({ error: 'Repeating reminders need a date' });
-    }
-
-    const timeModel = req.body.time_model === undefined ? 'fixed' : String(req.body.time_model);
-    if (!TIME_MODELS.includes(timeModel)) {
-      return res.status(400).json({ error: 'time_model must be fixed, floating, or anchored' });
-    }
-    let timeZone = req.body.time_zone === undefined || req.body.time_zone === null
-      ? null
-      : String(req.body.time_zone);
-    if (timeZone === '') timeZone = null;
-    if (timeZone && !recurrence.isValidTimeZone(timeZone)) {
-      return res.status(400).json({ error: 'Unknown time_zone' });
-    }
-    if (timeModel === 'anchored' && !timeZone) {
-      return res.status(400).json({ error: 'Zone-anchored reminders need a time_zone' });
-    }
-    if (timeModel === 'floating' && !timeZone) {
-      // Start from the creating device's zone when the client reports one.
-      const deviceZone = typeof req.body.device_zone === 'string' ? req.body.device_zone : '';
-      if (recurrence.isValidTimeZone(deviceZone)) timeZone = deviceZone;
+      failWith(400, 'Repeating reminders need a date');
     }
 
     const settings = await getSettings();
+    let timeModel;
+    if (body.time_model === undefined) {
+      timeModel = parity ? settings.default_time_model : 'fixed';
+    } else {
+      timeModel = String(body.time_model);
+    }
+    if (!TIME_MODELS.includes(timeModel)) {
+      failWith(400, 'time_model must be fixed, floating, or anchored');
+    }
+    let timeZone = body.time_zone === undefined || body.time_zone === null
+      ? null
+      : String(body.time_zone);
+    if (timeZone === '') timeZone = null;
+    if (timeZone && !recurrence.isValidTimeZone(timeZone)) {
+      failWith(400, 'Unknown time_zone');
+    }
+    if (timeModel === 'anchored' && !timeZone) {
+      if (parity) {
+        timeZone = recurrence.isValidTimeZone(settings.default_time_zone)
+          ? settings.default_time_zone : null;
+      }
+      if (!timeZone) failWith(400, 'Zone-anchored reminders need a time_zone');
+    }
+    if (timeModel === 'floating' && !timeZone) {
+      const deviceZone = typeof body.device_zone === 'string' ? body.device_zone : '';
+      if (recurrence.isValidTimeZone(deviceZone)) timeZone = deviceZone;
+    }
+
     let dueAt = dueAtRaw;
     if (dueAt && recurrence.isRecurringRule(rule)) {
       const anchored = recurrence.anchorRule(rule, dueAt, effectiveZoneFor({ time_model: timeModel, time_zone: timeZone }, settings));
       rule = anchored;
-      // A series that already started in the past begins at its first FUTURE
-      // occurrence instead of firing immediately with no history.
       if (new Date(dueAt).getTime() <= Date.now()) {
         dueAt = recurrence.firstFutureOccurrence(rule, dueAt,
           effectiveZoneFor({ time_model: timeModel, time_zone: timeZone }, settings), new Date().toISOString());
       }
     }
+    return { title, listId, dueAt, dueAtRaw, hasTime, urgent, completed, rule, timeModel, timeZone };
+  }
 
-    // Duplicate-safe creation: a retried request carrying the same
-    // idempotency key returns the original reminder instead of a copy.
-    const idempotencyKey = req.get('Idempotency-Key') || req.body.idempotency_key;
-    if (idempotencyKey) {
-      if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 200) {
-        return res.status(400).json({ error: 'Invalid idempotency key' });
-      }
-      const seen = await db.get('SELECT reminder_id FROM idempotency_keys WHERE key = ?', [idempotencyKey]);
-      if (seen) {
-        const existing = await loadReminder(seen.reminder_id);
-        if (existing) return res.json({ id: existing.id, deduplicated: true });
-      }
-    }
-
-    const now = new Date().toISOString();
-    const completedAt = completed ? now : null;
-    const notifiedAt = !completed && dueAt && !hasTime && new Date(dueAt) <= new Date() ? now : null;
+  async function insertReminderRow(prep, body, now) {
+    const notifiedAt = !prep.completed && prep.dueAt && !prep.hasTime && new Date(prep.dueAt) <= new Date() ? now : null;
     const max = await db.get(
       'SELECT COALESCE(MAX(sort_order), -1) AS s FROM reminders WHERE list_id = ?',
-      [listId]
+      [prep.listId]
     );
-
     const result = await db.run(`
       INSERT INTO reminders
         (list_id, title, notes, due_at, has_time, completed, completed_at, urgent,
          repeat_rule, time_model, time_zone, notified_at, last_push_at, push_count,
-         sort_order, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, ?)
-    `, [listId, title, text(req.body.notes, 5000), dueAt, hasTime, completed, completedAt,
-      urgent, recurrence.encodeRepeatRule(rule), timeModel, timeZone, notifiedAt,
+         sort_order, created_at, updated_at, revision)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 0, ?, ?, ?, 1)
+    `, [prep.listId, prep.title, text(body.notes, 5000), prep.dueAt, prep.hasTime,
+      prep.completed, prep.completed ? now : null,
+      prep.urgent, recurrence.encodeRepeatRule(prep.rule), prep.timeModel, prep.timeZone, notifiedAt,
       max.s + 1, now, now]);
+    return result.lastID;
+  }
 
-    if (idempotencyKey) {
-      await db.run('INSERT OR IGNORE INTO idempotency_keys (key, reminder_id, created_at) VALUES (?, ?, ?)',
-        [idempotencyKey, result.lastID, now]);
-      const winner = await db.get('SELECT reminder_id FROM idempotency_keys WHERE key = ?', [idempotencyKey]);
-      if (winner && winner.reminder_id !== result.lastID) {
-        // Lost a race with an identical retry: drop our duplicate.
-        await db.run('DELETE FROM reminders WHERE id = ?', [result.lastID]);
-        return res.json({ id: winner.reminder_id, deduplicated: true });
+  app.post('/api/reminders', async (req, res) => {
+    const profile = req.token ? (req.token.profile || 'legacy') : null;
+    if (req.token && req.body.completed) return denyToken(res);
+    // Session browsers and legacy tokens: exact historical behavior
+    // (coercing validation, legacy idempotency table, {id} shapes).
+    if (!req.token || profile === 'legacy') {
+      try {
+        const prep = await prepareReminderCreate(req.body, { strict: false, parity: false, isToken: Boolean(req.token) });
+        // Duplicate-safe creation: a retried request carrying the same
+        // idempotency key returns the original reminder instead of a copy.
+        const idempotencyKey = req.get('Idempotency-Key') || req.body.idempotency_key;
+        if (idempotencyKey) {
+          if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 200) {
+            return res.status(400).json({ error: 'Invalid idempotency key' });
+          }
+          const seen = await db.get('SELECT reminder_id FROM idempotency_keys WHERE key = ?', [idempotencyKey]);
+          if (seen) {
+            const existing = await loadReminder(seen.reminder_id);
+            if (existing) return res.json({ id: existing.id, deduplicated: true });
+          }
+        }
+        const now = new Date().toISOString();
+        const createdId = await insertReminderRow(prep, req.body, now);
+        if (idempotencyKey) {
+          await db.run('INSERT OR IGNORE INTO idempotency_keys (key, reminder_id, created_at) VALUES (?, ?, ?)',
+            [idempotencyKey, createdId, now]);
+          const winner = await db.get('SELECT reminder_id FROM idempotency_keys WHERE key = ?', [idempotencyKey]);
+          if (winner && winner.reminder_id !== createdId) {
+            // Lost a race with an identical retry: drop our duplicate.
+            await db.run('DELETE FROM reminders WHERE id = ?', [createdId]);
+            return res.json({ id: winner.reminder_id, deduplicated: true });
+          }
+        }
+        return res.status(201).json({ id: createdId });
+      } catch (err) {
+        return res.status(err.status || 500).json({ error: err.message || 'Server error' });
       }
     }
-
-    res.status(201).json({ id: result.lastID });
+    // Write-profile tokens: key required, strict validation, Settings
+    // time-model parity, stored-response idempotency ledger.
+    const key = idempotencyKeyFrom(req);
+    if (!key) return res.status(400).json({ error: 'Idempotency-Key header is required for API writes' });
+    const fingerprint = payloadFingerprint(req.body);
+    return runTokenWrite(req, res, {
+      route: 'POST /api/reminders',
+      key,
+      fingerprint,
+      execute: async () => {
+        const prep = await prepareReminderCreate(req.body, { strict: true, parity: true, isToken: true });
+        const now = new Date().toISOString();
+        const createdId = await insertReminderRow(prep, req.body, now);
+        const reminder = await loadReminder(createdId);
+        return { status: 201, body: { id: createdId, reminder }, reminderId: createdId };
+      },
+    });
   });
+
+  // ---- Write-profile token mutation helpers ----
+  // Strict validation for token callers: unknown fields and wrong types are
+  // rejected naming the field. Session behavior (coercion) is untouched.
+  const PATCH_FIELDS = ['title', 'notes', 'list_id', 'due_at', 'has_time', 'urgent',
+    'repeat_rule', 'repeat', 'time_model', 'time_zone', 'completed', 'snoozed_until',
+    'scope', 'occurrence_at', 'base_revision', 'base_epoch'];
+  function requireBase(body) {
+    if (!Number.isInteger(body.base_revision) || body.base_revision < 0
+      || typeof body.base_epoch !== 'string' || !body.base_epoch) {
+      throw tokenWriteError(400, 'base_revision and base_epoch are required for API writes');
+    }
+  }
+  function validateWritePatch(body) {
+    for (const key of Object.keys(body || {})) {
+      if (!PATCH_FIELDS.includes(key)) throw tokenWriteError(400, `Unknown field: ${key}`);
+    }
+    const mustBe = (key, check) => {
+      if (body[key] !== undefined && !check(body[key])) throw tokenWriteError(400, `Invalid ${key}`);
+    };
+    mustBe('title', (v) => typeof v === 'string');
+    mustBe('notes', (v) => typeof v === 'string');
+    mustBe('list_id', (v) => Number.isInteger(v) && v > 0);
+    mustBe('due_at', (v) => v === null || typeof v === 'string');
+    mustBe('has_time', (v) => typeof v === 'boolean');
+    mustBe('urgent', (v) => typeof v === 'boolean');
+    mustBe('repeat_rule', (v) => typeof v === 'string' || (v !== null && typeof v === 'object'));
+    mustBe('repeat', (v) => typeof v === 'string' || (v !== null && typeof v === 'object'));
+    mustBe('time_model', (v) => typeof v === 'string');
+    mustBe('time_zone', (v) => v === null || typeof v === 'string');
+    mustBe('completed', (v) => typeof v === 'boolean');
+    mustBe('snoozed_until', (v) => v === null || typeof v === 'string');
+    mustBe('scope', (v) => typeof v === 'string');
+    mustBe('occurrence_at', (v) => typeof v === 'string');
+    requireBase(body);
+  }
+  async function guardEpoch(baseEpoch) {
+    const epoch = await getStoreEpoch();
+    if (epoch !== baseEpoch) {
+      return { status: 409, body: { error: 'Store was restored since your read' } };
+    }
+    return null;
+  }
+  async function guardRevision(current, baseRevision) {
+    if (current.revision === baseRevision) return null;
+    const fresh = await loadReminder(current.id);
+    return { status: 409, body: { error: 'Reminder changed since your read', reminder: fresh } };
+  }
+  // Occurrence precondition for write-profile complete/skip on recurring
+  // series (closes the double-advance retry hazard). Returns a finished
+  // response, or null to proceed. Recognition bypasses ONLY the revision
+  // staleness check, never the epoch guard (checked before calling this).
+  async function guardOccurrence(id, current, occurrenceAt, action) {
+    const rule = parseRuleColumn(current.repeat_rule);
+    if (!recurrence.isRecurringRule(rule) || !current.due_at) {
+      return action === 'skip'
+        ? { status: 400, body: { error: 'Only dated repeating reminders can skip an occurrence' } }
+        : null;
+    }
+    if (occurrenceAt === undefined) {
+      throw tokenWriteError(400, 'occurrence_at is required for this operation on a recurring reminder');
+    }
+    if (occurrenceAt === current.due_at) return null;
+    const row = await db.get(
+      'SELECT status FROM reminder_occurrences WHERE reminder_id = ? AND occurrence_at = ?',
+      [id, occurrenceAt]
+    );
+    const recognized = action === 'complete'
+      ? (row && row.status === 'completed')
+      : (row && row.status === 'skipped');
+    if (recognized) {
+      return { status: 200, body: { ok: true, alreadyDone: true } };
+    }
+    const fresh = await loadReminder(id);
+    return { status: 409, body: { error: 'Stale occurrence', currentDue: fresh ? fresh.due_at : current.due_at } };
+  }
+
+  async function writeReminderPatch(req, res, id) {
+    const body = req.body || {};
+    try {
+      validateWritePatch(body);
+    } catch (err) {
+      return res.status(err.status || 400).json({ error: err.message });
+    }
+    const key = idempotencyKeyFrom(req);
+    if (!key) return res.status(400).json({ error: 'Idempotency-Key header is required for API writes' });
+    const route = `PATCH /api/reminders/${id}`;
+    return runTokenWrite(req, res, {
+      route, key, fingerprint: payloadFingerprint(body),
+      execute: async () => {
+        const current = await loadReminder(id);
+        if (!current) return { status: 404, body: { error: 'Reminder not found' } };
+        const epochGuard = await guardEpoch(body.base_epoch);
+        if (epochGuard) return epochGuard;
+
+        // Completing flows through the shared helper so browser, token,
+        // and push actions advance recurring series identically.
+        if (body.completed === true && !current.completed) {
+          const occGuard = await guardOccurrence(id, current, body.occurrence_at, 'complete');
+          if (occGuard) return occGuard;
+          const revGuard = await guardRevision(current, body.base_revision);
+          if (revGuard) return revGuard;
+          try {
+            const result = await completeReminder(id);
+            const reminder = await loadReminder(id);
+            return { status: 200, body: { ok: true, advanced: result.advanced || false, nextDue: result.nextDue || null, reminder }, reminderId: id };
+          } catch (err) {
+            return { status: err.status || 500, body: { error: err.message || 'Server error' } };
+          }
+        }
+        if (body.completed === true && current.completed
+          && !recurrence.isRecurringRule(parseRuleColumn(current.repeat_rule))) {
+          // Already in the desired end state: idempotent no-op.
+          return { status: 200, body: { ok: true, advanced: false, reminder: current }, reminderId: id };
+        }
+
+        const scope = body.scope === undefined ? 'series' : String(body.scope);
+        if (scope !== 'series' && scope !== 'occurrence') {
+          return { status: 400, body: { error: 'scope must be series or occurrence' } };
+        }
+        const currentRule = parseRuleColumn(current.repeat_rule);
+        const recurring = recurrence.isRecurringRule(currentRule);
+
+        if (scope === 'occurrence') {
+          if (!recurring || !current.due_at) {
+            return { status: 400, body: { error: 'Only dated repeating reminders have occurrences to edit' } };
+          }
+          const allowed = ['title', 'notes', 'list_id', 'urgent'];
+          const provided = Object.keys(body).filter((k) => !['scope', 'base_revision', 'base_epoch'].includes(k));
+          if (provided.some((k) => !allowed.includes(k))) {
+            return { status: 400, body: { error: 'Date changes apply to the whole series — edit those with scope "series"' } };
+          }
+          if (!provided.length) return { status: 400, body: { error: 'Nothing to update' } };
+          const revGuard = await guardRevision(current, body.base_revision);
+          if (revGuard) return revGuard;
+          const overrides = { title: null, notes: null, list_id: null, urgent: null };
+          if (body.title !== undefined) {
+            const title = text(body.title, 500);
+            if (!title) return { status: 400, body: { error: 'Title is required' } };
+            overrides.title = title;
+          }
+          if (body.notes !== undefined) overrides.notes = text(body.notes, 5000);
+          if (body.list_id !== undefined) {
+            const list = await db.get('SELECT id FROM lists WHERE id = ?', [body.list_id]);
+            if (!list) return { status: 400, body: { error: 'Choose a valid list' } };
+            overrides.list_id = body.list_id;
+          }
+          if (body.urgent !== undefined) overrides.urgent = body.urgent ? 1 : 0;
+          const now = new Date().toISOString();
+          await db.run(`
+            INSERT INTO reminder_occurrences (reminder_id, occurrence_at, status, title, notes, list_id, urgent, created_at)
+            VALUES (?, ?, 'exception', ?, ?, ?, ?, ?)
+            ON CONFLICT(reminder_id, occurrence_at) DO UPDATE SET
+              status = 'exception', title = excluded.title, notes = excluded.notes,
+              list_id = excluded.list_id, urgent = excluded.urgent
+          `, [id, current.due_at, overrides.title, overrides.notes, overrides.list_id, overrides.urgent, now]);
+          await db.run('UPDATE reminders SET updated_at = ?, revision = revision + 1 WHERE id = ?',
+            [now, id]);
+          const reminder = await loadReminder(id);
+          return { status: 200, body: { ok: true, occurrenceEdited: true, reminder }, reminderId: id };
+        }
+
+        // Series edit: same surface as session callers.
+        const revGuard = await guardRevision(current, body.base_revision);
+        if (revGuard) return revGuard;
+        const fields = [];
+        const params = [];
+        let dueChanged = false;
+        if (body.title !== undefined) {
+          const title = text(body.title, 500);
+          if (!title) return { status: 400, body: { error: 'Title is required' } };
+          fields.push('title = ?');
+          params.push(title);
+        }
+        if (body.notes !== undefined) {
+          fields.push('notes = ?');
+          params.push(text(body.notes, 5000));
+        }
+        if (body.list_id !== undefined) {
+          const list = await db.get('SELECT id FROM lists WHERE id = ?', [body.list_id]);
+          if (!list) return { status: 400, body: { error: 'Choose a valid list' } };
+          fields.push('list_id = ?');
+          params.push(body.list_id);
+        }
+        if (body.due_at !== undefined) {
+          const dueAt = normalizeDate(body.due_at);
+          if (dueAt === undefined) return { status: 400, body: { error: 'Invalid date' } };
+          const hasTime = dueAt && body.has_time ? 1 : 0;
+          fields.push('due_at = ?');
+          params.push(dueAt);
+          fields.push('has_time = ?');
+          params.push(hasTime);
+          fields.push('notified_at = NULL');
+          fields.push('last_push_at = NULL');
+          fields.push('push_count = 0');
+          fields.push('snoozed_until = NULL');
+          dueChanged = true;
+        }
+        if (body.urgent !== undefined) {
+          fields.push('urgent = ?');
+          params.push(body.urgent ? 1 : 0);
+        }
+        if (body.repeat_rule !== undefined || body.repeat !== undefined) {
+          let rule;
+          try {
+            rule = recurrence.parseRepeatRule(body.repeat_rule ?? body.repeat ?? 'none');
+          } catch (err) {
+            return { status: err.status || 500, body: { error: err.message || 'Server error' } };
+          }
+          const settings = await getSettings();
+          const zone = effectiveZoneFor({
+            time_model: body.time_model !== undefined ? body.time_model : current.time_model,
+            time_zone: body.time_zone !== undefined ? body.time_zone : current.time_zone,
+          }, settings);
+          const dueForAnchor = body.due_at !== undefined
+            ? normalizeDate(body.due_at)
+            : current.due_at;
+          if (recurrence.isRecurringRule(rule)) {
+            if (!dueForAnchor) return { status: 400, body: { error: 'Repeating reminders need a date' } };
+            rule = recurrence.anchorRule(rule, dueForAnchor, zone);
+          }
+          fields.push('repeat_rule = ?');
+          params.push(recurrence.encodeRepeatRule(rule));
+        }
+        if (body.time_model !== undefined) {
+          const model = String(body.time_model);
+          if (!TIME_MODELS.includes(model)) {
+            return { status: 400, body: { error: 'time_model must be fixed, floating, or anchored' } };
+          }
+          const zone = body.time_zone !== undefined ? body.time_zone : current.time_zone;
+          if (model === 'anchored' && !(typeof zone === 'string' && recurrence.isValidTimeZone(zone))) {
+            return { status: 400, body: { error: 'Zone-anchored reminders need a valid time_zone' } };
+          }
+          fields.push('time_model = ?');
+          params.push(model);
+        }
+        if (body.time_zone !== undefined) {
+          const zone = body.time_zone === null || body.time_zone === '' ? null : String(body.time_zone);
+          if (zone && !recurrence.isValidTimeZone(zone)) {
+            return { status: 400, body: { error: 'Unknown time_zone' } };
+          }
+          fields.push('time_zone = ?');
+          params.push(zone);
+        }
+        if (body.completed !== undefined) {
+          const completed = body.completed ? 1 : 0;
+          if (recurring && !completed) {
+            return { status: 400, body: { error: 'Recurring reminders stay open — use Skip for an occurrence' } };
+          }
+          fields.push('completed = ?');
+          params.push(completed);
+          if (completed && !current.completed) {
+            fields.push('completed_at = ?');
+            params.push(new Date().toISOString());
+          } else if (!completed) {
+            fields.push('completed_at = NULL');
+          }
+        }
+        if (body.snoozed_until !== undefined) {
+          if (body.snoozed_until === null || body.snoozed_until === '') {
+            fields.push('snoozed_until = NULL');
+          } else {
+            const until = new Date(body.snoozed_until);
+            if (Number.isNaN(until.getTime()) || until.getTime() <= Date.now()) {
+              return { status: 400, body: { error: 'Snooze time must be in the future' } };
+            }
+            fields.push('snoozed_until = ?');
+            params.push(until.toISOString());
+          }
+        }
+        if (!fields.length) return { status: 400, body: { error: 'Nothing to update' } };
+        const now = new Date().toISOString();
+        fields.push('updated_at = ?');
+        params.push(now);
+        fields.push('revision = revision + 1');
+        params.push(id, body.base_revision);
+        const updated = await db.run(
+          `UPDATE reminders SET ${fields.join(', ')} WHERE id = ? AND revision = ?`, params);
+        if (!updated.changes) {
+          const fresh = await loadReminder(id);
+          if (!fresh) return { status: 404, body: { error: 'Reminder not found' } };
+          return { status: 409, body: { error: 'Reminder changed since your read', reminder: fresh } };
+        }
+        const reminder = await loadReminder(id);
+        return { status: 200, body: { ok: true, dueChanged, reminder }, reminderId: id };
+      },
+    });
+  }
 
   app.patch('/api/reminders/:id', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid reminder' });
+    if (req.token && (req.token.profile || 'legacy') === 'write') {
+      return writeReminderPatch(req, res, id);
+    }
     const current = await loadReminder(id);
     if (!current) return res.status(404).json({ error: 'Reminder not found' });
 
-    // Token scope: agents may only complete reminders through this endpoint.
+    // Legacy token scope: agents may only complete reminders through this endpoint.
     if (req.token) {
       const keys = Object.keys(req.body);
       if (req.body.completed !== true || keys.some((key) => key !== 'completed')) {
@@ -1325,6 +2060,8 @@ async function main() {
           status = 'exception', title = excluded.title, notes = excluded.notes,
           list_id = excluded.list_id, urgent = excluded.urgent
       `, [id, current.due_at, overrides.title, overrides.notes, overrides.list_id, overrides.urgent, now]);
+      await db.run('UPDATE reminders SET updated_at = ?, revision = revision + 1 WHERE id = ?',
+        [now, id]);
       return res.json({ ok: true, occurrenceEdited: true });
     }
 
@@ -1447,6 +2184,7 @@ async function main() {
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
     fields.push('updated_at = ?');
     params.push(new Date().toISOString());
+    fields.push('revision = revision + 1');
     params.push(id);
     await db.run(`UPDATE reminders SET ${fields.join(', ')} WHERE id = ?`, params);
     res.json({ ok: true, dueChanged });

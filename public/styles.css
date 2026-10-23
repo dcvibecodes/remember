@@ -1649,7 +1649,8 @@ body.sheet-open .sidebar {
 .token-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   font-size: 0.8125rem;
 }
 

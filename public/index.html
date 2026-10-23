@@ -502,11 +502,19 @@
         </div>
         <div class="settings-group">
           <h3>API tokens</h3>
-          <p class="notify-hint">Tokens let your other agents read lists, add reminders, and complete them — no browser needed. A token can never delete, manage lists, or change the password.</p>
+          <p class="notify-hint">Tokens let your other agents work with reminders — no browser needed. A token can never delete, manage lists, or change the password.</p>
           <label class="settings-row" for="token-name">
             <span>Name</span>
             <input id="token-name" type="text" placeholder="e.g. friday-agent" maxlength="80" autocomplete="off">
           </label>
+          <label class="settings-row" for="token-profile">
+            <span>Access</span>
+            <select id="token-profile">
+              <option value="read" selected>Read only</option>
+              <option value="write">Read + write</option>
+            </select>
+          </label>
+          <p class="notify-hint">Read + write tokens can add, edit, complete, and snooze reminders. Choose it deliberately.</p>
           <button type="button" id="token-generate" class="primary-btn">Generate token</button>
           <div id="token-once" class="token-once" hidden>
             <p class="notify-hint"><strong>Copy it now — it will never be shown again.</strong></p>

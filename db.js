@@ -3,6 +3,7 @@
 const path = require('path');
 const fs = require('fs');
 const sqlite3 = require('sqlite3');
+const { AsyncLocalStorage } = require('node:async_hooks');
 
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -10,7 +11,7 @@ fs.mkdirSync(DATA_DIR, { recursive: true });
 const db = new sqlite3.Database(path.join(DATA_DIR, 'remember.db'));
 db.configure('busyTimeout', 5000);
 
-function run(sql, params = []) {
+function runRaw(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {
       if (err) reject(err);
@@ -29,6 +30,52 @@ function all(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => (err ? reject(err) : resolve(rows || [])));
   });
+}
+
+// Process-wide write mutex: EVERY database write in the process runs
+// through here, in order. The app shares one sqlite3 connection, so without
+// this, statements from concurrent requests (API handlers, the scheduler,
+// session-store writes, token bookkeeping) could interleave inside an open
+// transaction. Reads stay outside the lock.
+let writeChain = Promise.resolve();
+function withWriteLock(fn) {
+  const next = writeChain.then(() => fn(), () => fn());
+  writeChain = next.catch(() => {});
+  return next;
+}
+
+function lockedRun(sql, params = []) {
+  return withWriteLock(() => run(sql, params));
+}
+
+// Transaction context: while inside transaction(), run() statements execute
+// directly on the holder's open transaction instead of reacquiring the
+// mutex (which is non-reentrant and would deadlock). Helpers called from
+// inside a transaction must use run()/get()/all() normally — never
+// withWriteLock or transaction() again.
+const txContext = new AsyncLocalStorage();
+
+// Every database write routes through the mutex automatically, unless the
+// caller is inside transaction() (see above). Callers never need to think
+// about locking; they must only never nest transaction()/withWriteLock.
+function run(sql, params = []) {
+  const store = txContext.getStore();
+  if (store && store.inTransaction) return runRaw(sql, params);
+  return withWriteLock(() => runRaw(sql, params));
+}
+
+async function transaction(fn) {
+  return withWriteLock(() => txContext.run({ inTransaction: true }, async () => {
+    await run('BEGIN IMMEDIATE');
+    try {
+      const result = await fn();
+      await run('COMMIT');
+      return result;
+    } catch (err) {
+      await run('ROLLBACK').catch(() => {});
+      throw err;
+    }
+  }));
 }
 
 async function init() {
@@ -109,6 +156,10 @@ async function init() {
   await addReminderColumn('snoozed_until', 'snoozed_until TEXT');
   await addReminderColumn('last_push_at', 'last_push_at TEXT');
   await addReminderColumn('push_count', 'push_count INTEGER NOT NULL DEFAULT 0');
+  // Monotonic concurrency/sync primitive: every content or state mutation
+  // bumps this in the same statement that applies the mutation. Scheduler
+  // notification bookkeeping never touches it.
+  await addReminderColumn('revision', 'revision INTEGER NOT NULL DEFAULT 0');
   // Per-occurrence history for recurring reminders. One row per
   // (reminder, scheduled occurrence): 'completed' | 'skipped' | 'exception'
   // (an occurrence-only edit waiting to fire). UNIQUE keeps history honest.
@@ -136,6 +187,9 @@ async function init() {
   await run('CREATE INDEX IF NOT EXISTS idx_occurrences_reminder ON reminder_occurrences(reminder_id, occurrence_at)');
   // Personal access tokens for external agents. Only the SHA-256 hash is
   // stored; the raw token is shown once at creation and never logged.
+  // `profile` gates capability: 'read' (default for new tokens), 'write'
+  // (opt-in), 'legacy' (one-time migration landing state for tokens that
+  // predate profiles — never selectable, never a downgrade target).
   await run(`CREATE TABLE IF NOT EXISTS personal_access_tokens (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL DEFAULT '',
@@ -144,11 +198,33 @@ async function init() {
     last_used_at TEXT,
     revoked_at TEXT
   )`);
+  const tokenColumns = await all('PRAGMA table_info(personal_access_tokens)');
+  if (!tokenColumns.some((column) => column.name === 'profile')) {
+    await run(`ALTER TABLE personal_access_tokens ADD COLUMN profile TEXT NOT NULL DEFAULT 'read' CHECK (profile IN ('read','write','legacy'))`);
+    // Existing tokens keep exactly the capabilities they have today.
+    await run(`UPDATE personal_access_tokens SET profile = 'legacy'`);
+  }
   // Client-supplied idempotency keys for duplicate-safe reminder creation.
   await run(`CREATE TABLE IF NOT EXISTS idempotency_keys (
     key TEXT PRIMARY KEY,
     reminder_id INTEGER NOT NULL REFERENCES reminders(id) ON DELETE CASCADE,
     created_at TEXT NOT NULL
+  )`);
+  // Stored-response idempotency ledger for write-profile token mutations.
+  // Namespaced per token AND per concrete route, keyed on the raw request
+  // payload — never shared across principals. Deliberately NO foreign key:
+  // the claim must survive reminder deletion so a replay reports the
+  // recorded outcome (with deleted:true) instead of recreating the row.
+  await run(`CREATE TABLE IF NOT EXISTS token_idempotency_keys (
+    token_id INTEGER NOT NULL,
+    route TEXT NOT NULL,
+    key TEXT NOT NULL,
+    payload_hash TEXT NOT NULL,
+    response_json TEXT,
+    status INTEGER,
+    reminder_id INTEGER,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (token_id, route, key)
   )`);
   await run(`UPDATE lists SET color = CASE color
     WHEN '#FF3B30' THEN 'red'
@@ -192,4 +268,4 @@ async function setSetting(key, value) {
   );
 }
 
-module.exports = { db, run, get, all, init, getSetting, setSetting };
+module.exports = { db, run, get, all, init, getSetting, setSetting, withWriteLock, transaction };
