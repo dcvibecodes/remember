@@ -3,13 +3,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Done!</title>
+  <title>ToDo</title>
   <meta name="description" content="A self-hosted, Apple Reminders-style task app.">
   <meta name="theme-color" content="#f5efe6">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
-  <meta name="apple-mobile-web-app-title" content="Done!">
+  <meta name="apple-mobile-web-app-title" content="ToDo">
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
   <link rel="icon" href="/icons/favicon.svg" type="image/svg+xml">
@@ -113,7 +113,7 @@
     <form id="auth-form" class="auth-card" novalidate>
       <div class="auth-brand">
         <img class="auth-mark" src="/icons/favicon.svg" alt="" width="34" height="34">
-        <h1>Done!</h1>
+        <h1>ToDo</h1>
       </div>
       <p id="auth-sub" class="auth-sub">Enter your password to continue</p>
       <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" required>
@@ -129,7 +129,7 @@
       <div class="sidebar-head">
         <h1 class="wordmark">Your To-Dos</h1>
         <div class="sidebar-head-actions">
-          <button id="refresh-btn-side" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
+          <button id="refresh-btn-side" class="icon-btn refresh-btn" title="Refresh to-dos" aria-label="Refresh to-dos">
             <svg class="ic"><use href="#i-refresh"/></svg>
           </button>
           <button id="sidebar-menu-btn" class="icon-btn" title="Menu" aria-label="Menu">
@@ -140,7 +140,7 @@
 
       <form id="search-form" class="search" role="search">
         <svg class="ic search-ic"><use href="#i-search"/></svg>
-        <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search reminders">
+        <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search to-dos">
       </form>
       </div>
 
@@ -204,7 +204,7 @@
           <span id="view-count" class="view-count"></span>
         </div>
         <button id="view-menu" class="icon-btn" aria-label="List options" hidden>&#8943;</button>
-        <button id="refresh-btn" class="icon-btn refresh-btn" title="Refresh reminders" aria-label="Refresh reminders">
+        <button id="refresh-btn" class="icon-btn refresh-btn" title="Refresh to-dos" aria-label="Refresh to-dos">
           <svg class="ic"><use href="#i-refresh"/></svg>
         </button>
         <button id="menu-btn" class="icon-btn" aria-label="Toggle sidebar" aria-expanded="true" title="Sidebar">
@@ -214,13 +214,13 @@
 
       <form id="main-search-form" class="main-search" role="search">
         <svg class="ic search-ic"><use href="#i-search"/></svg>
-        <input id="main-search" type="search" placeholder="Search" autocomplete="off" aria-label="Search reminders">
+        <input id="main-search" type="search" placeholder="Search" autocomplete="off" aria-label="Search to-dos">
       </form>
 
       <div id="sort-bar" class="sort-bar" hidden>
         <label class="sort-control">
           <span>Sort</span>
-          <select id="sort-field" aria-label="Sort reminders by">
+          <select id="sort-field" aria-label="Sort to-dos by">
             <option value="due">Due date</option>
             <option value="created">Date added</option>
             <option value="name">Name</option>
@@ -238,7 +238,7 @@
       <div id="content" class="content"></div>
     </main>
 
-    <button id="fab-add" class="fab" aria-label="New reminder" title="New reminder">
+    <button id="fab-add" class="fab" aria-label="New to-do" title="New to-do">
       <svg class="ic"><use href="#i-plus"/></svg>
     </button>
   </div>
@@ -250,14 +250,14 @@
         <button type="button" class="round-btn" data-close aria-label="Cancel">
           <svg class="ic"><use href="#i-x"/></svg>
         </button>
-        <span id="editor-heading">New Reminder</span>
-        <button type="submit" class="round-btn save" aria-label="Save reminder">
+        <span id="editor-heading">New To-Do</span>
+        <button type="submit" class="round-btn save" aria-label="Save to-do">
           <svg class="ic"><use href="#i-check"/></svg>
         </button>
       </header>
       <div class="sheet-body editor-body">
         <div class="editor-fields">
-          <textarea id="e-title" class="e-title" placeholder="Title or Describe Reminder" rows="1" maxlength="500" required autocomplete="off"></textarea>
+          <textarea id="e-title" class="e-title" placeholder="Title or Describe To-Do" rows="1" maxlength="500" required autocomplete="off"></textarea>
           <button type="button" id="e-parse-chip" class="parse-chip" hidden>
             <span id="e-parse-text"></span>
             <svg class="ic"><use href="#i-x"/></svg>
@@ -318,7 +318,7 @@
               <button type="button" id="e-snooze-btn" class="mini-btn">Snooze 1h</button>
             </div>
           </div>
-          <p class="ed-hint">Urgent reminders are marked in red.</p>
+          <p class="ed-hint">Urgent to-dos are marked in red.</p>
         </div>
 
         <div class="ed-section" id="series-section" hidden>
@@ -376,7 +376,7 @@
           <p class="ed-hint" id="e-model-hint" hidden></p>
         </div>
 
-        <button type="button" id="e-delete" class="danger-btn editor-delete" hidden>Delete Reminder</button>
+        <button type="button" id="e-delete" class="danger-btn editor-delete" hidden>Delete To-Do</button>
       </div>
     </form>
   </div>
@@ -442,7 +442,7 @@
           <p id="settings-msg" class="form-msg" hidden></p>
         </div>
         <div class="settings-group">
-          <h3>New reminders</h3>
+          <h3>New to-dos</h3>
           <label class="settings-row" for="set-default-model">
             <span>Default time</span>
             <select id="set-default-model">
@@ -461,13 +461,13 @@
             <span>Date-only time</span>
             <input id="set-default-time" type="time">
           </label>
-          <p class="settings-note"><strong>Applies to new reminders only.</strong> Existing reminders keep their current time model and zone. Floating reminders still follow this device when its zone changes.</p>
+          <p class="settings-note"><strong>Applies to new to-dos only.</strong> Existing to-dos keep their current time model and zone. Floating to-dos still follow this device when its zone changes.</p>
           <p class="notify-hint">Floating follows this device; Fixed keeps an absolute instant; Anchored pins a named zone.</p>
         </div>
         <div class="settings-group">
           <h3>Notifications</h3>
           <label class="settings-row" for="set-repush">
-            <span>Re-push missed reminders</span>
+            <span>Re-push missed to-dos</span>
             <input id="set-repush" type="checkbox">
           </label>
           <label class="settings-row" for="set-repush-cadence">
@@ -498,11 +498,11 @@
           <button type="button" id="import-btn" class="secondary-btn">Import backup…</button>
           <input id="import-file" type="file" accept="application/json,.json" hidden>
           <p id="import-msg" class="form-msg" hidden></p>
-          <p class="notify-hint">Import adds missing lists and reminders; it never overwrites or deletes anything.</p>
+          <p class="notify-hint">Import adds missing lists and to-dos; it never overwrites or deletes anything.</p>
         </div>
         <div class="settings-group">
           <h3>API tokens</h3>
-          <p class="notify-hint">Tokens let your other agents work with reminders — no browser needed. A token can never delete, manage lists, or change the password.</p>
+          <p class="notify-hint">Tokens let your other agents work with to-dos — no browser needed. A token can never delete, manage lists, or change the password.</p>
           <label class="settings-row" for="token-name">
             <span>Name</span>
             <input id="token-name" type="text" placeholder="e.g. friday-agent" maxlength="80" autocomplete="off">
@@ -514,7 +514,7 @@
               <option value="write">Read + write</option>
             </select>
           </label>
-          <p class="notify-hint">Read + write tokens can add, edit, complete, and snooze reminders. Choose it deliberately.</p>
+          <p class="notify-hint">Read + write tokens can add, edit, complete, and snooze to-dos. Choose it deliberately.</p>
           <button type="button" id="token-generate" class="primary-btn">Generate token</button>
           <div id="token-once" class="token-once" hidden>
             <p class="notify-hint"><strong>Copy it now — it will never be shown again.</strong></p>
@@ -530,7 +530,7 @@ export HOST=https://your-domain.example
 # lists
 curl -H "Authorization: Bearer $TOKEN" $HOST/api/lists
 
-# add a reminder (idempotent with a client key)
+# add a to-do (idempotent with a client key)
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -H "Idempotency-Key: friday-001" \

@@ -1,11 +1,11 @@
 {
   "name": "remember",
-  "version": "1.9.1",
+  "version": "1.10.0",
   "description": "A self-hosted, Apple Reminders-style task app",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "icons": "node scripts/generate-icons.js"
+    "icons": "python3 generate-icons.py"
   },
   "license": "UNLICENSED",
   "dependencies": {

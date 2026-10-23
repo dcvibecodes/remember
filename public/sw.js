@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'remember-v1.9.0';
+const CACHE = 'remember-v1.10.0';
 const ASSETS = [
   '/',
   '/index.html',
@@ -85,7 +85,7 @@ self.addEventListener('push', (event) => {
 
   const tag = data.tag || 'remember';
   const options = {
-    body: data.body || 'You have a reminder due.',
+    body: data.body || 'You have a to-do due.',
     icon: '/icons/icon-192.png',
     badge: '/icons/icon-192.png',
     tag,
@@ -104,7 +104,7 @@ self.addEventListener('push', (event) => {
       { action: 'snooze', title: 'Snooze 1 hour' },
     ];
   }
-  event.waitUntil(self.registration.showNotification(data.title || 'Done!', options));
+  event.waitUntil(self.registration.showNotification(data.title || 'ToDo', options));
 });
 
 self.addEventListener('notificationclick', (event) => {

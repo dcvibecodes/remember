@@ -108,7 +108,7 @@ async function syncDeviceZone() {
     });
     state.settings = result.settings || state.settings;
     if (result.floatingMoved) {
-      toast(`Time zone is now ${zone}; moved ${result.floatingMoved} floating reminder${result.floatingMoved === 1 ? '' : 's'}`);
+      toast(`Time zone is now ${zone}; moved ${result.floatingMoved} floating to-do${result.floatingMoved === 1 ? '' : 's'}`);
     }
     render();
   } catch {
@@ -281,7 +281,7 @@ function showAuth() {
   $('#shell').hidden = true;
   $('#auth-confirm').hidden = !state.needsSetup;
   $('#auth-sub').textContent = state.needsSetup
-    ? 'Create a password to protect your reminders'
+    ? 'Create a password to protect your to-dos'
     : 'Enter your password to continue';
   $('#auth-submit').textContent = state.needsSetup ? 'Create Password' : 'Unlock';
   $('#auth-password').setAttribute('autocomplete', state.needsSetup ? 'new-password' : 'current-password');
@@ -861,7 +861,7 @@ function renderMain() {
   }
 
   if (view === 'home') {
-    document.title = 'Done!';
+    document.title = 'ToDo';
     return;
   }
 
@@ -884,16 +884,16 @@ function renderMain() {
 
   $('#view-title').textContent = title;
   const shownCount = typeof view === 'number'
-    ? items.length + (state.showCompleted ? completed.length : 0)
+    ? items.length + (state.showCompleted && !state.search ? completed.length : 0)
     : items.length;
   $('#view-count').textContent = shownCount ? String(shownCount) : '';
   if (typeof view === 'number') {
     $('#view-menu').hidden = false;
     $('#view-menu').onclick = () => openListSheet(list);
   }
-  document.title = `Done! — ${title}`;
+  document.title = `ToDo — ${title}`;
 
-  if (!items.length && !completed.length) {
+  if (!items.length) {
     content.append(emptyState(view));
     if (state.search) return;
   } else if (view === 'scheduled') {
@@ -930,7 +930,7 @@ function renderMain() {
   if (!state.lists.length) {
     content.append(el('button', {
       class: 'toggle-completed',
-      text: 'Create a list to start adding reminders',
+      text: 'Create a list to start adding to-dos',
       onclick: () => openListSheet(null),
     }));
   }
@@ -939,16 +939,16 @@ function renderMain() {
 function emptyState(view) {
   // Warmer empty states with a primary action where one makes sense.
   const copy = {
-    today: { icon: 'calendar', heading: 'All clear', message: 'Nothing is due today. Enjoy the quiet — or get ahead.', action: 'New Reminder' },
-    scheduled: { icon: 'clock', heading: 'Nothing scheduled', message: 'Give a reminder a date and it will show up here, grouped by day.', action: 'New Reminder' },
-    all: { icon: 'all', heading: 'A fresh start', message: 'No reminders yet. Capture the first thing on your mind.', action: 'New Reminder' },
-    flagged: { icon: 'flag', heading: 'Nothing flagged', message: 'Mark a reminder urgent and it will wait for you here.', action: null },
-    completed: { icon: 'done', heading: 'No history yet', message: 'Finished reminders land here for the next 30 days.', action: null },
-  }[view] || { icon: 'all', heading: 'Nothing here', message: 'No reminders in this list yet.', action: 'New Reminder' };
+    today: { icon: 'calendar', heading: 'All clear', message: 'Nothing is due today. Enjoy the quiet — or get ahead.', action: 'New To-Do' },
+    scheduled: { icon: 'clock', heading: 'Nothing scheduled', message: 'Give a to-do a date and it will show up here, grouped by day.', action: 'New To-Do' },
+    all: { icon: 'all', heading: 'A fresh start', message: 'No to-dos yet. Capture the first thing on your mind.', action: 'New To-Do' },
+    flagged: { icon: 'flag', heading: 'Nothing flagged', message: 'Mark a to-do urgent and it will wait for you here.', action: null },
+    completed: { icon: 'done', heading: 'No history yet', message: 'Finished to-dos land here for the next 30 days.', action: null },
+  }[view] || { icon: 'all', heading: 'Nothing here', message: 'No to-dos in this list yet.', action: 'New To-Do' };
   const children = [
     el('span', { html: ICON(copy.icon) }),
     el('h3', { class: 'empty-heading', text: copy.heading }),
-    el('p', { text: state.search ? 'No matching reminders' : copy.message }),
+    el('p', { text: state.search ? 'No matching to-dos' : copy.message }),
   ];
   if (state.search) {
     children.push(el('button', {
@@ -1352,12 +1352,12 @@ function resetRowDelete(button) {
   button.dataset.confirm = '';
   button.classList.remove('confirming');
   button.innerHTML = ICON('x', 'ic');
-  button.setAttribute('aria-label', button.dataset.origLabel || 'Delete reminder');
+  button.setAttribute('aria-label', button.dataset.origLabel || 'Delete to-do');
 }
 
 function handleRowDelete(reminder, button) {
   if (button.dataset.confirm !== '1') {
-    if (!button.dataset.origLabel) button.dataset.origLabel = button.getAttribute('aria-label') || 'Delete reminder';
+    if (!button.dataset.origLabel) button.dataset.origLabel = button.getAttribute('aria-label') || 'Delete to-do';
     button.dataset.confirm = '1';
     button.classList.add('confirming');
     button.textContent = 'Confirm?';
@@ -1398,7 +1398,7 @@ function deleteReminderInline(reminder, row) {
       await api('/api/reminders/' + reminder.id, { method: 'DELETE' });
       await loadState();
       render();
-      toast('Reminder deleted');
+      toast('To-do deleted');
     } catch (err) {
       toast(err.message);
       await loadState();
@@ -1639,7 +1639,7 @@ function openEditor(id) {
   hideParseChip();
 
   state.editingId = reminder ? reminder.id : null;
-  $('#editor-heading').textContent = reminder ? 'Edit Reminder' : 'New Reminder';
+  $('#editor-heading').textContent = reminder ? 'Edit To-Do' : 'New To-Do';
   $('#e-title').value = reminder ? reminder.title : '';
   $('#e-notes').value = reminder ? reminder.notes : '';
 
@@ -1723,7 +1723,7 @@ async function saveEditor(event) {
   const repeatValue = $('#e-repeat').value;
   let repeatRule = 'none';
   if (repeatValue !== 'none') {
-    if (!dateOn) return toast('Repeating reminders need a date');
+    if (!dateOn) return toast('Repeating to-dos need a date');
     if (repeatValue === 'custom') {
       const interval = Math.max(1, Math.min(366, Number($('#e-repeat-interval').value) || 1));
       repeatRule = { type: 'custom', interval, unit: $('#e-repeat-unit').value };
@@ -1876,7 +1876,7 @@ function clearParse() {
 
 async function deleteReminder() {
   if (!state.editingId) return;
-  if (!window.confirm('Delete this reminder?')) return;
+  if (!window.confirm('Delete this to-do?')) return;
   try {
     await api('/api/reminders/' + state.editingId, { method: 'DELETE' });
     closeSheet('#editor');
@@ -1968,7 +1968,7 @@ async function saveList(event) {
 
 async function deleteList() {
   if (!state.editingListId) return;
-  if (!window.confirm('Delete this list and all of its reminders?')) return;
+  if (!window.confirm('Delete this list and all of its to-dos?')) return;
   const id = state.editingListId;
   try {
     await api('/api/lists/' + id, { method: 'DELETE' });
@@ -2014,8 +2014,8 @@ async function syncPushState() {
 function updateNotifyUI() {
   const enabled = Boolean(state.subscription);
   $('#notify-status').textContent = enabled
-    ? 'Notifications are on for this device. You will be notified when a reminder is due.'
-    : 'Allow Done! to send a notification when a reminder is due.';
+    ? 'Notifications are on for this device. You will be notified when a to-do is due.'
+    : 'Allow ToDo to send a notification when a to-do is due.';
   $('#notify-enable').hidden = enabled;
   $('#notify-test').hidden = !enabled;
   $('#notify-disable').hidden = !enabled;
@@ -2036,7 +2036,7 @@ function openNotifySheet() {
     enable.disabled = true;
   } else if (isIOS && !standalone) {
     hint.hidden = false;
-    hint.textContent = 'On iPhone or iPad, notifications only work after adding Done! to your Home Screen: tap Share, then Add to Home Screen, and open it from there.';
+    hint.textContent = 'On iPhone or iPad, notifications only work after adding ToDo to your Home Screen: tap Share, then Add to Home Screen, and open it from there.';
     enable.disabled = true;
   } else {
     hint.hidden = true;
@@ -2185,7 +2185,7 @@ function resetSwipe(row) {
     action.dataset.confirm = '';
     const label = action.querySelector('.del-label');
     if (label) label.textContent = 'Delete';
-    action.setAttribute('aria-label', 'Delete reminder');
+    action.setAttribute('aria-label', 'Delete to-do');
   }
 }
 
@@ -2202,7 +2202,7 @@ function snapSwipeOpen(row) {
     action.dataset.confirm = '';
     const label = action.querySelector('.del-label');
     if (label) label.textContent = 'Delete';
-    action.setAttribute('aria-label', 'Delete reminder');
+    action.setAttribute('aria-label', 'Delete to-do');
   }
 }
 
@@ -2360,7 +2360,7 @@ async function openSettings() {
   $('#set-quiet-start').value = s.quiet_start || '23:00';
   $('#set-quiet-end').value = s.quiet_end || '07:00';
   $('#device-zone-label').textContent = s.device_zone
-    ? `This device reports ${s.device_zone}${s.device_zone_updated_at ? ` (last synced ${new Date(s.device_zone_updated_at).toLocaleString()})` : ''}. Floating reminders follow it.`
+    ? `This device reports ${s.device_zone}${s.device_zone_updated_at ? ` (last synced ${new Date(s.device_zone_updated_at).toLocaleString()})` : ''}. Floating to-dos follow it.`
     : 'This device has not reported its time zone yet — open the app once online.';
   $('#token-once').hidden = true;
   $('#token-name').value = '';
@@ -2396,7 +2396,7 @@ async function saveAppSettings() {
       },
     });
     state.settings = result.settings || state.settings;
-    settingsMessage('Saved. Applies to new reminders only — existing reminders were not changed.', true);
+    settingsMessage('Saved. Applies to new to-dos only — existing to-dos were not changed.', true);
   } catch (err) {
     settingsMessage(err.message);
   }
@@ -2526,7 +2526,7 @@ async function importBackupFile(file) {
     const data = JSON.parse(await file.text());
     const result = await api('/api/import', { method: 'POST', body: { data } });
     importMessage(
-      `Imported ${result.listsAdded} lists and ${result.remindersAdded} reminders ` +
+      `Imported ${result.listsAdded} lists and ${result.remindersAdded} to-dos ` +
       `(${result.listsSkipped + result.remindersSkipped + result.occurrencesSkipped} skipped as already present).`,
       true
     );

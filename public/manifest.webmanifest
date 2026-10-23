@@ -1,6 +1,6 @@
 {
-  "name": "Done!",
-  "short_name": "Done!",
+  "name": "ToDo",
+  "short_name": "ToDo",
   "description": "A self-hosted, Apple Reminders-style task app.",
   "id": "/",
   "start_url": "/",

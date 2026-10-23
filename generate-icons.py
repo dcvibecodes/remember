@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Generate the Done! app icons: Fraunces wordmark on a dark rounded square,
-same styling as the Spend Less / Invest More icon set (single word + bang)."""
+"""Generate the ToDo app icons: stacked TO / DO wordmark in Fraunces on a dark
+rounded square, matching the Spend Less / Invest More icon set."""
 import os
 
 from PIL import Image, ImageDraw, ImageFont
@@ -17,9 +17,15 @@ OUTPUT_DIR = os.path.join(BASE, 'public', 'icons')
 CANVAS = 512
 CORNER_RADIUS = 128
 BACKGROUND = '#12110F'
-WORD = 'Done!'
-WORD_SIZE = 170
-WORD_COLOR = '#f5efe6'
+ROW_GAP = 8
+ROW1_SIZE = 140
+ROW2_SIZE = 208
+ROW1_COLOR = '#f5efe6'
+ROW2_COLOR = '#fcfaf3'
+ROWS = [
+    ('TO', ROW1_SIZE, ROW1_COLOR),
+    ('DO', ROW2_SIZE, ROW2_COLOR),
+]
 OUTPUTS = [
     ('favicon.svg', None),
     ('icon-192.png', 192),
@@ -65,36 +71,49 @@ def word_svg_paths(text, size):
 
 
 def layout():
-    box = word_ink_bbox(WORD, WORD_SIZE)
-    # Center the ink box on the canvas (matches the two-row layout math:
-    # ty is the baseline offset that centers ink vertically).
-    tx = CANVAS / 2 - (box[0] + box[2]) / 2
-    ty = CANVAS / 2 + (box[1] + box[3]) / 2
-    return (tx, ty)
+    boxes = [word_ink_bbox(word, size) for word, size, _ in ROWS]
+    baselines = [0.0]
+    for i in range(1, len(boxes)):
+        baselines.append(
+            baselines[i - 1] - boxes[i - 1][1] + ROW_GAP + boxes[i][3]
+        )
+    tops = [baselines[i] - boxes[i][3] for i in range(len(boxes))]
+    bots = [baselines[i] - boxes[i][1] for i in range(len(boxes))]
+    dy = CANVAS / 2 - (min(tops) + max(bots)) / 2
+    positions = []
+    for i, (box, bl) in enumerate(zip(boxes, baselines)):
+        tx = CANVAS / 2 - (box[0] + box[2]) / 2
+        positions.append((tx, bl + dy))
+    return positions
 
 
-def build_svg(pos):
-    tx, ty = pos
+def build_svg(positions):
+    groups = []
+    for (word, size, color), (tx, ty) in zip(ROWS, positions):
+        groups.append(
+            f'<g transform="translate({tx:.3f} {ty:.3f})"><g fill="{color}">'
+            + word_svg_paths(word, size)
+            + '</g></g>'
+        )
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{CANVAS}" height="{CANVAS}" '
         f'viewBox="0 0 {CANVAS} {CANVAS}">'
         f'<rect width="{CANVAS}" height="{CANVAS}" rx="{CORNER_RADIUS}" fill="{BACKGROUND}"/>'
-        f'<g transform="translate({tx:.3f} {ty:.3f})"><g fill="{WORD_COLOR}">'
-        + word_svg_paths(WORD, WORD_SIZE)
-        + '</g></g></svg>'
+        + ''.join(groups)
+        + '</svg>'
     )
 
 
-def build_master_png(pos):
-    tx, ty = pos
+def build_master_png(positions):
     img = Image.new('RGB', (CANVAS, CANVAS), BACKGROUND)
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((0, 0, CANVAS - 1, CANVAS - 1),
                         radius=CORNER_RADIUS, fill=BACKGROUND)
-    f = ImageFont.truetype(FONT_PATH, WORD_SIZE)
-    bb = d.textbbox((0, 0), WORD, font=f, anchor='ls')
-    d.text((CANVAS / 2 - (bb[0] + bb[2]) / 2, ty),
-           WORD, font=f, fill=WORD_COLOR, anchor='ls')
+    for (word, size, color), (tx, ty) in zip(ROWS, positions):
+        f = ImageFont.truetype(FONT_PATH, size)
+        bb = d.textbbox((0, 0), word, font=f, anchor='ls')
+        d.text((CANVAS / 2 - (bb[0] + bb[2]) / 2, ty),
+               word, font=f, fill=color, anchor='ls')
     return img
 
 
@@ -108,9 +127,9 @@ def build_maskable(master):
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    pos = layout()
-    svg = build_svg(pos)
-    master = build_master_png(pos)
+    positions = layout()
+    svg = build_svg(positions)
+    master = build_master_png(positions)
     maskable = build_maskable(master)
     for name, size in OUTPUTS:
         out = os.path.join(OUTPUT_DIR, name)
