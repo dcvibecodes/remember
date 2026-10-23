@@ -56,6 +56,29 @@ async function init() {
     sort_order INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL
   )`);
+  const listColumns = await all('PRAGMA table_info(lists)');
+  if (!listColumns.some((column) => column.name === 'is_system')) {
+    await run('ALTER TABLE lists ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0');
+  }
+  // Pinned Unlisted list: always first, cannot be renamed/deleted/reordered.
+  let systemList = await get('SELECT id, is_system, sort_order FROM lists WHERE is_system = 1 LIMIT 1');
+  if (!systemList) {
+    const existingUnlisted = await get('SELECT id FROM lists WHERE LOWER(name) = ? LIMIT 1', ['unlisted']);
+    if (existingUnlisted) {
+      await run('UPDATE lists SET is_system = 1, sort_order = 0 WHERE id = ?', [existingUnlisted.id]);
+      systemList = { id: existingUnlisted.id };
+    } else {
+      const created = await run(
+        'INSERT INTO lists (name, color, sort_order, is_system, created_at) VALUES (?, ?, ?, 1, ?)',
+        ['Unlisted', 'gray', 0, new Date().toISOString()]
+      );
+      systemList = { id: created.lastID };
+    }
+    await run('UPDATE lists SET sort_order = sort_order + 1 WHERE id != ?', [systemList.id]);
+  } else if (systemList.sort_order !== 0) {
+    await run('UPDATE lists SET sort_order = sort_order + 1 WHERE id != ?', [systemList.id]);
+    await run('UPDATE lists SET sort_order = 0 WHERE id = ?', [systemList.id]);
+  }
   await run(`CREATE TABLE IF NOT EXISTS reminders (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     list_id INTEGER NOT NULL REFERENCES lists(id) ON DELETE CASCADE,

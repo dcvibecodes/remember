@@ -1,11 +1,13 @@
 'use strict';
 
-const CACHE = 'remember-v1.8.2';
+const CACHE = 'remember-v1.8.3';
 const ASSETS = [
   '/',
   '/index.html',
   '/styles.css',
   '/app.js',
+  '/fonts/fraunces-latin-600.woff2',
+  '/fonts/outfit-latin-var.woff2',
   '/manifest.webmanifest',
   '/icons/icon-192.png',
   '/icons/icon-512.png',

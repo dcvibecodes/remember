@@ -1,3 +1,19 @@
+@font-face {
+  font-family: 'Fraunces';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/fraunces-latin-600.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Outfit';
+  font-style: normal;
+  font-weight: 300 700;
+  font-display: swap;
+  src: url('/fonts/outfit-latin-var.woff2') format('woff2');
+}
+
 :root {
   color-scheme: light;
   --bg: #f5efe6;
@@ -31,6 +47,8 @@
   --shadow-card: 0 1px 2px rgba(44, 36, 27, 0.04);
   --radius: 14px;
   --radius-sm: 6px;
+  --control-height: 40px;
+  --settings-control-width: 170px;
   --sidebar-width: 280px;
   --list-red: var(--red);
   --list-rose: var(--rose);
@@ -153,6 +171,8 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 
 .auth-card input {
   width: 100%;
+  height: var(--control-height);
+  min-height: var(--control-height);
   background: var(--elev);
   border: 1px solid var(--line);
   border-radius: var(--radius-sm);
@@ -222,7 +242,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 6px;
+  padding: 0;
 }
 
 .sidebar-head-actions {
@@ -231,8 +251,7 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   gap: 2px;
 }
 
-#collapse-btn { display: none; }
-#sidebar-menu-btn { display: none; }
+#sidebar-menu-btn { display: grid; }
 
 .wordmark {
   margin: 0;
@@ -334,6 +353,13 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
 .nav-ic .ic { width: 17px; height: 17px; }
 .nav-row.active .nav-ic { color: var(--accent); }
 
+.nav-row::after {
+  content: "";
+  width: 22px;
+  height: 22px;
+  flex: none;
+}
+
 .nav-label { flex: 1; font-weight: 500; }
 .nav-row.active .nav-label { font-weight: 600; }
 
@@ -345,6 +371,20 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   color: var(--text-3);
   font-variant-numeric: tabular-nums;
 }
+
+.new-list-btn {
+  border: 0;
+  background: transparent;
+  padding: 3px 2px;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 0.75rem;
+  font-weight: 550;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.new-list-btn:hover { color: var(--text); }
 
 .section-head {
   display: flex;
@@ -402,16 +442,27 @@ button, a, input, select, textarea, [tabindex] { touch-action: manipulation; }
   place-items: center;
   border-radius: 5px;
   color: var(--text-3);
-  opacity: 0;
+  opacity: 0.55;
   cursor: grab;
   touch-action: none;
   transition: opacity 0.15s, background 0.15s;
 }
 
 .list-grip .ic { width: 15px; height: 15px; }
-.list-row:hover .list-grip,
-.list-row:focus-visible .list-grip { opacity: 0.75; }
+.list-row:hover .list-grip { opacity: 0.9; }
+.list-row:focus-visible .list-grip { opacity: 1; }
 .list-grip:hover { background: var(--fill); }
+
+.list-lock {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  opacity: 0.5;
+}
+.list-lock .ic { width: 14px; height: 14px; }
 
 .list-row.dragging {
   opacity: 0.3;
@@ -450,7 +501,7 @@ body.list-dragging .list-grip { cursor: grabbing; }
   margin-top: auto;
   padding-top: 10px;
   border-top: 1px solid var(--line-soft);
-  display: flex;
+  display: none;
   flex-direction: column;
   gap: 1px;
 }
@@ -528,6 +579,8 @@ body.list-dragging .list-grip { cursor: grabbing; }
   font-family: 'Fraunces', serif;
   font-size: 1.375rem;
   font-weight: 600;
+  font-optical-sizing: none;
+  font-variation-settings: 'opsz' 22;
   letter-spacing: -0.025em;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -542,6 +595,50 @@ body.list-dragging .list-grip { cursor: grabbing; }
 }
 
 .main-search { display: none; }
+
+.sort-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  width: auto;
+  max-width: 100%;
+  margin: 8px 24px 0;
+  padding: 0;
+  font-size: 0.75rem;
+  color: var(--text-3);
+}
+
+.sort-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  flex: none;
+}
+
+.sort-control > span {
+  flex: none;
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-3);
+}
+
+.sort-control select {
+  width: auto;
+  max-width: 150px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-size: 0.75rem;
+  padding: 0 2px;
+}
+
+.sort-control select:focus { outline: none; color: var(--text); }
 
 .content {
   flex: 1;
@@ -856,91 +953,6 @@ body.list-dragging .list-grip { cursor: grabbing; }
 .empty p { margin: 0; font-size: 0.875rem; max-width: 300px; }
 .empty .primary-btn { margin-top: 8px; }
 
-/* ---------- Home grid ---------- */
-
-.grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
-  padding-top: 2px;
-}
-
-@media (min-width: 620px) {
-  .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-}
-
-@media (min-width: 1080px) {
-  .grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-}
-
-.list-card {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  min-height: 112px;
-  padding: 14px;
-  border: 1px solid var(--line-soft);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--c) 7%, var(--surface));
-  box-shadow: var(--shadow-card);
-  text-align: left;
-  transition: border-color 0.15s, transform 0.1s;
-}
-
-.list-card:hover { border-color: var(--line); }
-.list-card:active { transform: scale(0.99); }
-
-.card-count {
-  position: absolute;
-  top: 12px;
-  right: 14px;
-  font-size: 0.8125rem;
-  font-weight: 500;
-  color: var(--text-3);
-  font-variant-numeric: tabular-nums;
-}
-
-.card-dot {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 2px solid var(--c);
-  background: color-mix(in srgb, var(--c) 16%, var(--surface));
-}
-
-.card-name {
-  font-size: 0.875rem;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-add {
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  color: var(--text-3);
-  background: transparent;
-  border-style: dashed;
-  border-color: var(--line);
-  font-size: 0.8125rem;
-  font-weight: 500;
-}
-
-.card-add:hover { color: var(--text-2); border-color: var(--text-3); }
-.card-add .ic { width: 20px; height: 20px; }
-
-.section-label {
-  margin: 24px 0 10px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: var(--text-3);
-}
-
 /* ---------- Floating add button ---------- */
 
 .fab {
@@ -1066,6 +1078,9 @@ body.sheet-open .sidebar {
 }
 
 .e-title:focus, .e-notes:focus { outline: none; border-color: var(--accent); }
+
+#l-name { height: var(--control-height); min-height: var(--control-height); }
+#l-name:disabled { opacity: 0.65; cursor: default; }
 
 .e-notes {
   border: 1px solid var(--line);
@@ -1311,6 +1326,7 @@ body.sheet-open .sidebar {
   width: auto;
   max-width: 100%;
   min-width: 0;
+  height: var(--control-height);
   border: 0;
   border-radius: 8px;
   background: color-mix(in srgb, var(--text) 7%, transparent);
@@ -1404,25 +1420,19 @@ body.sheet-open .sidebar {
   font-size: 0.875rem;
 }
 
-.ed-repeat-custom input[type="number"] {
-  width: 64px;
+.ed-repeat-custom input[type="number"],
+.ed-repeat-custom select {
+  height: var(--control-height);
   border: 0;
   border-radius: 9px;
   background: color-mix(in srgb, var(--text) 7%, transparent);
-  padding: 9px 11px;
+  padding: 0 11px;
   color: var(--text);
   font-size: 0.9375rem;
 }
 
-.ed-repeat-custom select {
-  flex: 1;
-  border: 0;
-  border-radius: 9px;
-  background: color-mix(in srgb, var(--text) 7%, transparent);
-  padding: 9px 11px;
-  color: var(--text);
-  font-size: 0.9375rem;
-}
+.ed-repeat-custom input[type="number"] { width: 72px; flex: none; }
+.ed-repeat-custom select { flex: 1; }
 
 .segmented {
   display: flex;
@@ -1524,6 +1534,8 @@ body.sheet-open .sidebar {
 }
 
 .settings-group input {
+  height: var(--control-height);
+  min-height: var(--control-height);
   border: 1px solid var(--line);
   background: var(--elev);
   border-radius: var(--radius-sm);
@@ -1578,6 +1590,7 @@ body.sheet-open .sidebar {
   display: flex;
   align-items: center;
   gap: 12px;
+  min-height: var(--control-height);
   font-size: 0.875rem;
   color: var(--text);
 }
@@ -1588,18 +1601,23 @@ body.sheet-open .sidebar {
 .settings-row input[type="time"],
 .settings-row input[type="number"],
 .settings-row input[type="text"] {
+  flex: 0 0 var(--settings-control-width);
+  width: var(--settings-control-width);
+  height: var(--control-height);
   border: 1px solid var(--line);
   background: var(--elev);
   border-radius: var(--radius-sm);
-  padding: 8px 10px;
+  padding: 0 10px;
   font-size: 0.875rem;
   color: var(--text);
-  max-width: 170px;
+  text-align: left;
 }
 
 .settings-row input[type="checkbox"] {
   width: 22px;
   height: 22px;
+  flex: none;
+  margin: 0;
   accent-color: var(--accent);
 }
 
@@ -1696,18 +1714,7 @@ body.sheet-open .sidebar {
 
 /* ---------- Mobile ---------- */
 
-@media (min-width: 900px) {
-  #refresh-btn { display: none; }
-}
-
-#menu-btn { display: none; }
-
-.sidebar-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 45;
-  background: rgba(0, 0, 0, 0.38);
-}
+#menu-btn { display: grid; }
 
 .account-menu {
   position: fixed;
@@ -1727,33 +1734,23 @@ body.sheet-open .sidebar {
 
 .account-menu .text-btn { width: 100%; }
 
+/* ---------- Desktop: mirror the mobile Home ---------- */
 @media (min-width: 900px) {
-  .account-menu { display: none !important; }
-}
+  html, body { height: 100%; }
+  body { overflow: hidden; overscroll-behavior-y: contain; }
 
-@media (min-width: 900px) {
-  .sidebar-backdrop { display: none !important; }
-}
+  .shell { display: flex; height: 100dvh; min-height: 0; }
 
-/* ---------- Desktop web layout: page scroll, drawer sidebar ---------- */
-@media (min-width: 900px) {
-  html, body { height: auto; }
-  body { min-height: 100dvh; overflow-y: auto; overscroll-behavior-y: auto; }
-
-  .shell { display: block; height: auto; min-height: 100dvh; }
-
-  /* The sidebar is a slide-in drawer, not a permanent inner scroller. It
-     pushes the main column when open (no overlay/blocking) and remembers the
-     user's choice. The scrollbar is hidden; long lists still scroll. */
   .sidebar {
-    position: fixed;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    z-index: 50;
-    box-shadow: 8px 0 30px rgba(0, 0, 0, 0.1);
-    transform: translateX(0);
-    transition: transform 0.22s ease;
+    position: static;
+    width: min(60vw, 1100px);
+    height: 100%;
+    margin: 0 auto;
+    border-right: 0;
+    padding: 18px 24px calc(96px + env(safe-area-inset-bottom));
+    z-index: auto;
+    transform: none;
+    transition: none;
     overflow-y: auto;
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -1761,36 +1758,75 @@ body.sheet-open .sidebar {
 
   .sidebar::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
-  body.sidebar-closed .sidebar {
-    transform: translateX(-105%);
-    pointer-events: none;
-  }
+  body[data-screen="home"] .sidebar { display: flex; }
+  body[data-screen="home"] .main { display: none; }
+  body[data-screen="detail"] .sidebar { display: none; }
+  body[data-screen="detail"] .main { display: flex; }
+
+  .sidebar .sidebar-foot { display: none; }
 
   .main {
-    min-height: 100dvh;
-    margin-left: var(--sidebar-width);
-    transition: margin-left 0.22s ease;
+    width: min(60vw, 1100px);
+    min-height: 0;
+    margin: 0 auto;
+    display: flex;
+    flex: none;
   }
 
-  body.sidebar-closed .main { margin-left: 0; }
-
-  /* The list title freezes on top while the whole page scrolls beneath it. */
   .main-head {
-    position: sticky;
-    top: 0;
-    z-index: 20;
-    background: var(--bg);
+    position: static;
     max-width: none;
+    padding: 18px 24px 10px;
+    align-items: center;
   }
 
-  .content { overflow: visible; max-width: none; }
+  .back-btn { display: flex; }
+  body[data-screen="home"] .back-btn { display: none; }
+  .back-btn span { display: inline; }
 
   #menu-btn { display: grid; }
-  #collapse-btn { display: grid; }
-}
+  #sidebar-menu-btn { display: grid; }
 
-@media (min-width: 900px) and (prefers-reduced-motion: reduce) {
-  .sidebar, .main { transition: none; }
+  .main-search {
+    display: flex;
+    align-items: center;
+    position: relative;
+    margin: 8px 24px 0;
+  }
+
+  .main-search .search-ic { left: 10px; width: 16px; height: 16px; }
+
+  .main-search input {
+    width: 100%;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: 8px 10px 8px 32px;
+    background: var(--elev);
+    -webkit-appearance: none;
+    appearance: none;
+  }
+
+  .main-search input::placeholder { color: var(--text-3); }
+  .main-search input:focus { outline: none; border-color: var(--accent); }
+  .main-search input::-webkit-search-cancel-button { -webkit-appearance: none; }
+
+  .sort-bar { margin: 8px 24px 0; }
+
+  .account-menu {
+    right: max(12px, calc((100vw - min(60vw, 1100px)) / 2 + 12px));
+  }
+
+  .fab {
+    right: max(28px, calc((100vw - min(60vw, 1100px)) / 2 + 28px));
+  }
+
+  .content {
+    width: 100%;
+    max-width: none;
+    margin: 0;
+    padding: 12px 24px calc(132px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+  }
 }
 
 /* ---------- Compact density (opt-in) ---------- */
@@ -1811,8 +1847,8 @@ body.sheet-open .sidebar {
     height: 100%;
     border-right: 0;
     padding-top: calc(14px + env(safe-area-inset-top));
-    padding-left: 16px;
-    padding-right: 16px;
+    padding-left: 18px;
+    padding-right: 18px;
     padding-bottom: calc(96px + env(safe-area-inset-bottom));
     z-index: auto;
     transform: none;
@@ -1825,10 +1861,22 @@ body.sheet-open .sidebar {
 
   /* Mobile home is the full-screen list panel: search, smart views, My Lists,
      then the lists. The footer actions live in the hamburger menu. */
-  body[data-screen="home"] .sidebar { display: flex; }
+  body[data-screen="home"] .sidebar { display: flex; overflow: hidden; }
   body[data-screen="home"] .main { display: none; }
   body[data-screen="detail"] .sidebar { display: none; }
   body[data-screen="detail"] .main { display: flex; }
+
+  /* Keep the floating add button below the scrolling list area, not on top
+     of the last list row. */
+  body[data-screen="home"] #lists {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+    padding-bottom: 8px;
+  }
+  body[data-screen="home"] #lists::-webkit-scrollbar { display: none; width: 0; height: 0; }
 
   .sidebar .sidebar-foot { display: none; }
 
@@ -1837,16 +1885,19 @@ body.sheet-open .sidebar {
 
   #menu-btn { display: grid; }
   #sidebar-menu-btn { display: grid; }
-  #collapse-btn { display: none; }
-  .sidebar-backdrop { display: none !important; }
 
   .list-row { -webkit-touch-callout: none; user-select: none; }
+
+  /* Home and detail headers share the same height so the menu button never
+     shifts vertically when opening a list. */
+  .sidebar-head, .main-head { min-height: 34px; }
+  .sidebar-head { align-items: flex-start; }
 
   .main-head {
     flex-wrap: wrap;
     align-items: center;
     row-gap: 0;
-    padding: calc(4px + env(safe-area-inset-top)) 18px 8px;
+    padding: calc(14px + env(safe-area-inset-top)) 18px 8px;
   }
 
   .back-btn { order: 1; flex: none; padding: 6px 6px 6px 0; margin-right: 2px; }
@@ -1856,6 +1907,7 @@ body.sheet-open .sidebar {
   .view-count { font-size: 0.8125rem; }
   #view-menu { order: 3; }
   #refresh-btn { order: 4; }
+  #menu-btn { order: 5; }
 
   .search input, .main-search input,
   .auth-card input, .settings-group input, .e-title, .e-notes,
@@ -1887,6 +1939,15 @@ body.sheet-open .sidebar {
     align-items: center;
     position: relative;
     margin: 8px 18px 0;
+  }
+
+  .sort-bar {
+    margin: 8px 18px 0;
+  }
+
+  .sort-control select {
+    max-width: 130px;
+    font-size: 0.75rem;
   }
 
   .main-search .search-ic { left: 10px; width: 16px; height: 16px; }
@@ -1921,9 +1982,6 @@ body.sheet-open .sidebar {
   .reminder-title { font-size: 0.9375rem; }
   .reminder-meta { font-size: 0.75rem; }
 
-  .grid { gap: 10px; }
-  .list-card { min-height: 100px; }
-
   .sheet { align-items: flex-end; padding: 0; }
   .sheet-card {
     width: 100%;
@@ -1949,8 +2007,7 @@ body.sheet-open .sidebar {
   .nav-row:hover,
   .list-row:hover,
   .icon-btn:hover,
-  .text-btn:hover,
-  .list-card:hover { background: transparent; }
+  .text-btn:hover { background: transparent; }
   .text-btn:hover { color: var(--text-2); }
   /* Keep the swipe content opaque on touch: the Delete layer sits beneath. */
   .reminder:hover .swipe-content { background: var(--surface); }

@@ -507,11 +507,12 @@ async function main() {
     const hash = await bcrypt.hash(password, 12);
     const now = new Date().toISOString();
     await db.run('INSERT INTO users (password_hash, created_at) VALUES (?, ?)', [hash, now]);
-    const listCount = await db.get('SELECT COUNT(*) AS n FROM lists');
-    if (!listCount.n) {
+    const remindersList = await db.get('SELECT id FROM lists WHERE LOWER(name) = ? LIMIT 1', ['reminders']);
+    if (!remindersList) {
+      const max = await db.get('SELECT COALESCE(MAX(sort_order), -1) AS s FROM lists');
       await db.run(
         'INSERT INTO lists (name, color, sort_order, created_at) VALUES (?, ?, ?, ?)',
-        ['Reminders', DEFAULT_LIST_COLOR, 0, now]
+        ['Reminders', DEFAULT_LIST_COLOR, max.s + 1, now]
       );
     }
 
@@ -989,7 +990,7 @@ async function main() {
   app.get('/api/state', async (req, res) => {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const lists = await db.all(`
-      SELECT l.id, l.name, l.color, l.sort_order, l.created_at,
+      SELECT l.id, l.name, l.color, l.sort_order, l.created_at, l.is_system,
         (SELECT COUNT(*) FROM reminders r WHERE r.list_id = l.id AND r.completed = 0) AS count
       FROM lists l ORDER BY l.sort_order, l.id
     `);
@@ -1027,7 +1028,7 @@ async function main() {
   // Agent + UI reads. Tokens may use these; full rows for UI convenience.
   app.get('/api/lists', async (req, res) => {
     const lists = await db.all(`
-      SELECT l.id, l.name, l.color, l.sort_order, l.created_at,
+      SELECT l.id, l.name, l.color, l.sort_order, l.created_at, l.is_system,
         (SELECT COUNT(*) FROM reminders r WHERE r.list_id = l.id AND r.completed = 0) AS count
       FROM lists l ORDER BY l.sort_order, l.id
     `);
@@ -1085,10 +1086,14 @@ async function main() {
     if (!ids.length || ids.some((id) => !Number.isInteger(id) || id <= 0) || new Set(ids).size !== ids.length) {
       return res.status(400).json({ error: 'Invalid list order' });
     }
-    const existing = await db.all('SELECT id FROM lists');
+    const existing = await db.all('SELECT id, is_system FROM lists');
     const existingIds = new Set(existing.map((row) => row.id));
     if (ids.length !== existingIds.size || ids.some((id) => !existingIds.has(id))) {
       return res.status(400).json({ error: 'List order is out of date' });
+    }
+    const systemList = existing.find((row) => row.is_system);
+    if (systemList && ids[0] !== systemList.id) {
+      return res.status(400).json({ error: 'Unlisted must stay first' });
     }
     const cases = ids.map((id, index) => `WHEN ${id} THEN ${index}`).join(' ');
     try {
@@ -1103,7 +1108,7 @@ async function main() {
   app.patch('/api/lists/:id', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid list' });
-    const list = await db.get('SELECT id FROM lists WHERE id = ?', [id]);
+    const list = await db.get('SELECT id, name, is_system FROM lists WHERE id = ?', [id]);
     if (!list) return res.status(404).json({ error: 'List not found' });
 
     const fields = [];
@@ -1111,6 +1116,9 @@ async function main() {
     if (req.body.name !== undefined) {
       const name = text(req.body.name, 120);
       if (!name) return res.status(400).json({ error: 'List name is required' });
+      if (list.is_system && name !== list.name) {
+        return res.status(400).json({ error: 'Unlisted cannot be renamed' });
+      }
       fields.push('name = ?');
       params.push(name);
     }
@@ -1127,8 +1135,10 @@ async function main() {
   app.delete('/api/lists/:id', async (req, res) => {
     const id = parseId(req.params.id);
     if (!id) return res.status(400).json({ error: 'Invalid list' });
-    const result = await db.run('DELETE FROM lists WHERE id = ?', [id]);
-    if (!result.changes) return res.status(404).json({ error: 'List not found' });
+    const list = await db.get('SELECT id, is_system FROM lists WHERE id = ?', [id]);
+    if (!list) return res.status(404).json({ error: 'List not found' });
+    if (list.is_system) return res.status(400).json({ error: 'Unlisted cannot be deleted' });
+    await db.run('DELETE FROM lists WHERE id = ?', [id]);
     res.json({ ok: true });
   });
 
@@ -1137,11 +1147,15 @@ async function main() {
     if (!title) return res.status(400).json({ error: 'Title is required' });
     // Lists can be referenced by id or by name (agents pass names).
     const listRef = req.body.list_id !== undefined ? req.body.list_id : req.body.list;
+    const hasListRef = listRef !== undefined && listRef !== null && listRef !== '';
     let list = null;
     try {
       list = await resolveList(listRef);
     } catch (err) {
       return res.status(err.status || 500).json({ error: err.message || 'Server error' });
+    }
+    if (!list && !hasListRef) {
+      list = await db.get('SELECT id, name FROM lists WHERE is_system = 1 LIMIT 1');
     }
     if (!list) return res.status(400).json({ error: 'Choose a list' });
     const listId = list.id;

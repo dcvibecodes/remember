@@ -23,6 +23,8 @@ const state = {
   csrfToken: null,
   subscription: null,
   editScope: 'series',
+  sortField: localStorage.getItem('remember.sortField') || 'due',
+  sortDir: localStorage.getItem('remember.sortDir') || 'asc',
   lastListId: Number(localStorage.getItem('remember.lastList')) || null,
 };
 
@@ -241,6 +243,8 @@ function defaultListId() {
   if (state.view !== 'home' && typeof state.view === 'number' && listById(state.view)) {
     return state.view;
   }
+  const unlisted = state.lists.find((list) => list.is_system);
+  if (unlisted) return unlisted.id;
   if (state.lastListId && listById(state.lastListId)) return state.lastListId;
   return state.lists[0] ? state.lists[0].id : null;
 }
@@ -377,7 +381,7 @@ function go(view) {
 
 function parseRoute() {
   const raw = location.hash.replace(/^#\/?/, '');
-  if (!raw) return isMobile() ? 'home' : 'today';
+  if (!raw) return 'home';
   if (raw === 'home') return 'home';
   if (raw.startsWith('list/')) {
     const id = Number(raw.slice(5));
@@ -452,6 +456,32 @@ function matchesSearch(reminder) {
     || (reminder.notes || '').toLowerCase().includes(needle);
 }
 
+function compareReminders(a, b) {
+  const direction = state.sortDir === 'desc' ? -1 : 1;
+  const fallback = (a.sort_order - b.sort_order) || (a.id - b.id);
+  if (state.sortField === 'name') {
+    const cmp = a.title.localeCompare(b.title, undefined, { sensitivity: 'base', numeric: true });
+    return cmp ? direction * cmp : fallback;
+  }
+  if (state.sortField === 'created') {
+    const av = new Date(a.created_at || 0).getTime();
+    const bv = new Date(b.created_at || 0).getTime();
+    return av === bv ? fallback : direction * (av - bv);
+  }
+  // Due date: undated reminders stay last in both directions, so they never
+  // disappear into the middle of a date-sorted view.
+  const av = a.due_at ? new Date(a.due_at).getTime() : null;
+  const bv = b.due_at ? new Date(b.due_at).getTime() : null;
+  if (av === null && bv === null) return fallback;
+  if (av === null) return 1;
+  if (bv === null) return -1;
+  return av === bv ? fallback : direction * (av - bv);
+}
+
+function sortItems(items) {
+  return [...items].sort(compareReminders);
+}
+
 function viewItems() {
   const view = state.view;
   let items;
@@ -459,43 +489,32 @@ function viewItems() {
   if (view === 'today') {
     const limit = endOfToday();
     items = incompleteReminders()
-      .filter((reminder) => reminder.due_at && new Date(reminder.due_at) <= limit)
-      .sort((a, b) => dueValue(a) - dueValue(b));
+      .filter((reminder) => reminder.due_at && new Date(reminder.due_at) <= limit);
   } else if (view === 'scheduled') {
     items = incompleteReminders()
-      .filter((reminder) => reminder.due_at)
-      .sort((a, b) => dueValue(a) - dueValue(b));
+      .filter((reminder) => reminder.due_at);
   } else if (view === 'flagged') {
     items = incompleteReminders()
-      .filter((reminder) => reminder.urgent)
-      .sort((a, b) => dueValue(a) - dueValue(b)
-        || new Date(a.created_at) - new Date(b.created_at)
-        || a.id - b.id);
+      .filter((reminder) => reminder.urgent);
   } else if (view === 'all') {
-    items = incompleteReminders()
-      .sort((a, b) => dueValue(a) - dueValue(b)
-        || new Date(a.created_at) - new Date(b.created_at)
-        || a.id - b.id);
+    items = incompleteReminders();
   } else if (view === 'completed') {
     items = state.reminders
-      .filter((reminder) => reminder.completed)
-      .sort((a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0));
+      .filter((reminder) => reminder.completed);
   } else if (typeof view === 'number') {
     items = state.reminders
-      .filter((reminder) => reminder.list_id === view && !reminder.completed)
-      .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id);
+      .filter((reminder) => reminder.list_id === view && !reminder.completed);
   } else {
     items = [];
   }
 
-  return items.filter(matchesSearch);
+  return sortItems(items.filter(matchesSearch));
 }
 
 function completedInList(listId) {
-  return state.reminders
+  return sortItems(state.reminders
     .filter((reminder) => reminder.list_id === listId && reminder.completed)
-    .filter(matchesSearch)
-    .sort((a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0));
+    .filter(matchesSearch));
 }
 
 function render() {
@@ -504,65 +523,22 @@ function render() {
   updateBadge();
 }
 
-const SIDEBAR_KEY = 'remember.sidebar';
-
-function isDesktop() {
-  return window.matchMedia('(min-width: 900px)').matches;
-}
-
 function getAccountMenu() {
   return $('#account-menu');
 }
 
 function syncMenuButtons() {
-  if (!getAccountMenu()) return;
-  const desktop = isDesktop();
-  const drawerOpen = !document.body.classList.contains('sidebar-closed');
-  const accountOpen = !getAccountMenu().hidden;
-  const expanded = desktop ? drawerOpen : accountOpen;
+  const menu = getAccountMenu();
+  if (!menu) return;
+  const open = !menu.hidden;
   $$('#menu-btn, #sidebar-menu-btn').forEach((btn) => {
-    btn.setAttribute('aria-expanded', String(expanded));
-    btn.title = desktop ? (drawerOpen ? 'Hide sidebar' : 'Show sidebar') : 'Menu';
+    btn.setAttribute('aria-expanded', String(open));
+    btn.title = open ? 'Close menu' : 'Menu';
     btn.setAttribute('aria-label', btn.title);
   });
 }
 
-// Desktop drawer: closed on first visit, choice persisted. Mobile no longer
-// has a drawer — the home screen itself is the full list panel, and the
-// hamburger opens a small Notifications / Settings / Log out menu.
-function syncSidebarChrome(open) {
-  const sidebar = document.querySelector('.sidebar');
-  const backdrop = $('#sidebar-backdrop');
-  if (!isDesktop()) {
-    document.body.classList.remove('sidebar-closed');
-    if (sidebar) sidebar.inert = false;
-    if (backdrop) backdrop.hidden = true;
-    syncMenuButtons();
-    return;
-  }
-  document.body.classList.toggle('sidebar-closed', !open);
-  if (sidebar) sidebar.inert = !open;
-  if (backdrop) backdrop.hidden = true;
-  syncMenuButtons();
-}
-
-function setSidebar(open, persist = true) {
-  if (persist) localStorage.setItem(SIDEBAR_KEY, open ? 'open' : 'closed');
-  syncSidebarChrome(open);
-}
-
-function applySidebar() {
-  closeAccountMenu();
-  syncSidebarChrome(localStorage.getItem(SIDEBAR_KEY) === 'open');
-}
-
-function toggleSidebar() {
-  if (!isDesktop()) return;
-  setSidebar(document.body.classList.contains('sidebar-closed'));
-}
-
 function toggleAccountMenu() {
-  if (isDesktop()) return;
   const menu = getAccountMenu();
   if (!menu) return;
   menu.hidden = !menu.hidden;
@@ -572,12 +548,11 @@ function toggleAccountMenu() {
 function closeAccountMenu() {
   const menu = getAccountMenu();
   if (menu) menu.hidden = true;
-  if (menu) syncMenuButtons();
+  syncMenuButtons();
 }
 
 function handleMenuButton() {
-  if (isDesktop()) toggleSidebar();
-  else toggleAccountMenu();
+  toggleAccountMenu();
 }
 
 let listDrag = null;
@@ -601,7 +576,7 @@ function cleanupListDrag() {
 
 function startListDrag(event, list, row, grip) {
   if (event.button !== undefined && event.button !== 0) return;
-  if (state.lists.length < 2 || listDrag) return;
+  if (list.is_system || state.lists.length < 2 || listDrag) return;
   event.preventDefault();
 
   const rect = row.getBoundingClientRect();
@@ -627,6 +602,7 @@ function startListDrag(event, list, row, grip) {
     startTop: rect.top,
     height: rect.height,
     targetIndex: state.lists.findIndex((item) => item.id === list.id),
+    minIndex: state.lists[0] && state.lists[0].is_system ? 1 : 0,
     onMove: null,
     onUp: null,
     onCancel: null,
@@ -648,9 +624,9 @@ function startListDrag(event, list, row, grip) {
         break;
       }
     }
-    drag.targetIndex = index;
+    drag.targetIndex = Math.max(drag.minIndex, index);
     $$('#lists .list-row').forEach((node) => node.classList.remove('drop-before', 'drop-after'));
-    if (index < rows.length) rows[index].classList.add('drop-before');
+    if (drag.targetIndex < rows.length) rows[drag.targetIndex].classList.add('drop-before');
     else if (rows.length) rows[rows.length - 1].classList.add('drop-after');
   };
 
@@ -658,7 +634,7 @@ function startListDrag(event, list, row, grip) {
     if (!listDrag || upEvent.pointerId !== drag.pointerId) return;
     const index = drag.targetIndex;
     const ids = state.lists.map((item) => item.id).filter((id) => id !== list.id);
-    ids.splice(Math.max(0, Math.min(index, ids.length)), 0, list.id);
+    ids.splice(Math.max(drag.minIndex, Math.min(index, ids.length)), 0, list.id);
     const changed = ids.some((id, i) => id !== state.lists[i].id);
     cleanupListDrag();
     if (!changed) return;
@@ -758,8 +734,9 @@ function persistListOrder(ids) {
 // and use arrow keys to move it. Every move is announced.
 function moveListKeyboard(listId, direction) {
   const from = state.lists.findIndex((item) => item.id === listId);
-  if (from === -1) return;
-  const to = Math.max(0, Math.min(state.lists.length - 1, from + direction));
+  if (from === -1 || state.lists[from].is_system) return;
+  const minIndex = state.lists[0] && state.lists[0].is_system ? 1 : 0;
+  const to = Math.max(minIndex, Math.min(state.lists.length - 1, from + direction));
   if (to === from) return;
   const ids = state.lists.map((item) => item.id);
   const [moved] = ids.splice(from, 1);
@@ -832,30 +809,39 @@ function renderSidebar() {
       el('span', { class: 'list-name', text: list.name }),
       el('span', { class: 'badge', text: list.count ? String(list.count) : '' }),
     ]);
-    const grip = el('span', {
-      class: 'list-grip',
-      title: 'Drag to reorder',
-      tabindex: '0',
-      role: 'button',
-      'data-list-id': list.id,
-      'aria-label': `Reorder ${list.name}: drag, or press up and down arrows to move`,
-      html: ICON('grip', 'ic'),
-    });
-    grip.addEventListener('pointerdown', (event) => startListDrag(event, list, row, grip));
-    grip.addEventListener('click', (event) => event.stopPropagation());
-    grip.addEventListener('keydown', (event) => {
-      if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
-        event.preventDefault();
-        event.stopPropagation();
-        moveListKeyboard(list.id, event.key === 'ArrowUp' ? -1 : 1);
-      } else if (event.key === 'Home' || event.key === 'End') {
-        event.preventDefault();
-        event.stopPropagation();
-        const from = state.lists.findIndex((item) => item.id === list.id);
-        moveListKeyboard(list.id, (event.key === 'Home' ? 0 : state.lists.length - 1) - from);
-      }
-    });
-    row.append(grip);
+    if (list.is_system) {
+      row.append(el('span', {
+        class: 'list-lock',
+        title: 'Unlisted is always first',
+        'aria-hidden': 'true',
+        html: ICON('lock', 'ic'),
+      }));
+    } else {
+      const grip = el('span', {
+        class: 'list-grip',
+        title: 'Drag to reorder',
+        tabindex: '0',
+        role: 'button',
+        'data-list-id': list.id,
+        'aria-label': `Reorder ${list.name}: drag, or press up and down arrows to move`,
+        html: ICON('grip', 'ic'),
+      });
+      grip.addEventListener('pointerdown', (event) => startListDrag(event, list, row, grip));
+      grip.addEventListener('click', (event) => event.stopPropagation());
+      grip.addEventListener('keydown', (event) => {
+        if (event.key === 'ArrowUp' || event.key === 'ArrowDown') {
+          event.preventDefault();
+          event.stopPropagation();
+          moveListKeyboard(list.id, event.key === 'ArrowUp' ? -1 : 1);
+        } else if (event.key === 'Home' || event.key === 'End') {
+          event.preventDefault();
+          event.stopPropagation();
+          const from = state.lists.findIndex((item) => item.id === list.id);
+          moveListKeyboard(list.id, (event.key === 'Home' ? 0 : state.lists.length - 1) - from);
+        }
+      });
+      row.append(grip);
+    }
     wrap.append(row);
   }
 
@@ -867,12 +853,15 @@ function renderMain() {
   const content = $('#content');
   content.replaceChildren();
   $('#view-menu').hidden = true;
+  const sortBar = $('#sort-bar');
+  sortBar.hidden = view === 'home';
+  if (view !== 'home') {
+    $('#sort-field').value = state.sortField;
+    $('#sort-dir').value = state.sortDir;
+  }
 
   if (view === 'home') {
-    $('#view-title').textContent = 'My Lists';
-    $('#view-count').textContent = state.lists.length ? String(state.lists.length) : '';
     document.title = 'Remember';
-    renderHome(content);
     return;
   }
 
@@ -1029,47 +1018,6 @@ function renderScheduled(content, items) {
     for (const reminder of group) wrap.append(reminderRow(reminder));
     content.append(wrap);
   }
-}
-
-function renderHome(content) {
-  if (state.search) {
-    const matches = state.reminders.filter(matchesSearch);
-    if (!matches.length) {
-      content.append(el('div', { class: 'empty' }, [
-        el('span', { html: ICON('search') }),
-        el('p', { text: 'No matching reminders' }),
-      ]));
-      return;
-    }
-    const group = el('div', { class: 'reminder-group' });
-    for (const reminder of matches) group.append(reminderRow(reminder));
-    content.append(group);
-    return;
-  }
-
-  const grid = el('div', { class: 'grid' });
-  for (const list of state.lists) {
-    const card = el('button', {
-      class: 'list-card',
-      style: { '--c': colorVar(list.color) },
-      onclick: () => go('list/' + list.id),
-    }, [
-      el('span', { class: 'card-count', text: list.count ? String(list.count) : '' }),
-      el('span', { class: 'card-dot' }),
-      el('span', { class: 'card-name', text: list.name }),
-    ]);
-    grid.append(card);
-  }
-
-  grid.append(el('button', {
-    class: 'list-card card-add',
-    onclick: () => openListSheet(null),
-  }, [
-    el('span', { html: ICON('plus') }),
-    el('span', { text: 'New List' }),
-  ]));
-
-  content.append(grid);
 }
 
 // Full URLs plus bare domains ("example.com", "www.example.com/path") so
@@ -1951,14 +1899,16 @@ function nextListColor() {
 }
 
 function openListSheet(list) {
+  const system = Boolean(list && list.is_system);
   state.editingListId = list ? list.id : null;
   state.selectedColor = list ? list.color : nextListColor();
-  $('#list-heading').textContent = list ? 'Edit List' : 'New List';
+  $('#list-heading').textContent = list ? (system ? 'Unlisted' : 'Edit List') : 'New List';
   $('#l-name').value = list ? list.name : '';
-  $('#l-delete').hidden = !list;
+  $('#l-name').disabled = system;
+  $('#l-delete').hidden = !list || system;
   renderSwatches();
   openSheet('#list-sheet');
-  setTimeout(() => $('#l-name').focus(), 80);
+  if (!system) setTimeout(() => $('#l-name').focus(), 80);
 }
 
 function renderSwatches() {
@@ -1980,6 +1930,21 @@ function renderSwatches() {
 
 async function saveList(event) {
   event.preventDefault();
+  const existing = state.editingListId ? listById(state.editingListId) : null;
+  if (existing && existing.is_system) {
+    try {
+      await api('/api/lists/' + existing.id, {
+        method: 'PATCH',
+        body: { color: state.selectedColor },
+      });
+      closeSheet('#list-sheet');
+      await loadState();
+      render();
+    } catch (err) {
+      toast(err.message);
+    }
+    return;
+  }
   const name = $('#l-name').value.trim();
   if (!name) return toast('List name is required');
 
@@ -2613,8 +2578,6 @@ $('#import-file').addEventListener('change', (event) => {
 $('#fab-add').addEventListener('click', () => openEditor(null));
 $('#menu-btn').addEventListener('click', handleMenuButton);
 $('#sidebar-menu-btn').addEventListener('click', toggleAccountMenu);
-$('#collapse-btn').addEventListener('click', toggleSidebar);
-$('#sidebar-backdrop').addEventListener('click', () => setSidebar(false));
 $('#account-notifications').addEventListener('click', () => { closeAccountMenu(); openNotifySheet(); });
 $('#account-settings').addEventListener('click', () => { closeAccountMenu(); openSettings(); });
 $('#account-logout').addEventListener('click', () => { closeAccountMenu(); logout(); });
@@ -2690,6 +2653,16 @@ $('#e-notes').addEventListener('input', () => {
   autoGrowNotes();
   renderEditorLinks();
 });
+$('#sort-field').addEventListener('change', (event) => {
+  state.sortField = event.target.value;
+  localStorage.setItem('remember.sortField', state.sortField);
+  render();
+});
+$('#sort-dir').addEventListener('change', (event) => {
+  state.sortDir = event.target.value;
+  localStorage.setItem('remember.sortDir', state.sortDir);
+  render();
+});
 $('#list-form').addEventListener('submit', saveList);
 $('#l-delete').addEventListener('click', deleteList);
 
@@ -2745,11 +2718,10 @@ async function refreshOnResume() {
 
 window.addEventListener('hashchange', route);
 window.addEventListener('focus', refreshOnResume);
-window.addEventListener('resize', applySidebar);
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible') refreshOnResume();
 });
 
 applyDensity();
-applySidebar();
+syncMenuButtons();
 boot();

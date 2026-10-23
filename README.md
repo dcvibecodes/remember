@@ -2,9 +2,17 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v1.8.3
+
+- **Unlisted list** — a pinned gray system list that always sits first. It uses a lock instead of a drag handle and cannot be renamed, deleted, or reordered. New reminders added from Home or any smart view default to Unlisted; reminders added while inside a list default to that list.
+- **Unified Home** — one full-width Home panel on web and mobile, with a centered 60vw desktop column (max 1100px), plain-text Sort/Order controls, visible drag grips, and a New List text button. The old sidebar/card-grid layout is gone.
+- **Fixed menu position** — the hamburger now stays at the exact same top-right position on Home and inside a list; it no longer jumps to the left.
+- **Self-hosted fonts** — Fraunces and Outfit are served from `/fonts` and precached by the service worker. No Google Fonts requests, so the display typography is identical on web/mobile and works offline.
+- **Service worker** — cache bumped to `remember-v1.8.3`.
+
 ## Features
 
-- Lists with a 15-color palette (new lists auto-pick the first unused color, then rotate) and drag-to-reorder handles (pointer, touch, and keyboard).
+- Lists with a 15-color palette (new lists auto-pick the first unused color, then rotate), drag-to-reorder handles (pointer, touch, and keyboard), and a pinned Unlisted list that stays first.
 - Reminders with title, notes, date, optional time, and an urgent flag. Notes render as a text row plus a separate row of compact link chips; bare domains like example.com work, and joining commas are not shown between chips.
 - Recurring reminders (daily/weekly/monthly/yearly/custom) with per-occurrence completion history, skip, a **Next occurrence** row action for due series, and this-occurrence-vs-series editing.
 - Natural-language quick add: "call mom tomorrow 6pm" pre-fills the editor with a removable preview.
@@ -15,8 +23,8 @@ A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due
 - Completed reminders remain visible for 30 days; older records stay in SQLite but are not returned by the API. Per-list Show/Hide-completed choice is remembered.
 - Deleting is inline (no browser dialogs): on touch, swipe any row left — including completed rows — to reveal the red Delete action (centered label), tap it once for “Confirm?”, tap again to delete; swipe right closes the reveal. On the web there is no swipe; hover the row and click the ×, then “Confirm?”. The card slides away when deleted.
 - Search across active reminders.
-- Desktop uses the full window: reminders fill the width in one scrolling document with a frozen list header and a fixed FAB. The sidebar is a push drawer (closed by default; hamburger or in-sidebar collapse; choice persisted; hidden scrollbar).
-- Mobile home is a full-screen panel: search, Today/Scheduled/All/Flagged/Completed, My Lists, then the lists with drag/long-press reordering. The hamburger holds only Notifications, Settings, and Log out. Inside a list, the same hamburger is in the header; back returns to the lists. Default time model on a phone is floating.
+- Desktop uses a centered 60vw column (max 1100px) with one Home panel; reminders fill the column with a fixed FAB. There is no permanent sidebar.
+- Mobile home is a full-screen panel: search, Today/Scheduled/All/Flagged/Completed, My Lists, then the lists with drag/long-press reordering. The hamburger holds only Notifications, Settings, and Log out and stays at the same top-right position on Home and inside a list; back returns to the lists. Default time model on a phone is floating.
 - Installable PWA with web push notifications. iOS requires 16.4+ and the app installed to the Home Screen.
 - Single-user password auth, CSRF protection, rate-limited login, and secure session cookies behind HTTPS.
 - Auto, light, and dark themes, plus comfortable/compact density.
@@ -38,6 +46,7 @@ The card shows “Floating” without a zone (the editor discloses the last sync
 - Node.js 20+ and Express 4
 - SQLite via `sqlite3` (WAL mode, foreign keys on)
 - Vanilla JavaScript PWA with a small hash router
+- Self-hosted Outfit + Fraunces fonts (no external font CDN)
 - `bcryptjs` + `express-session` for single-user auth
 - `web-push` with VAPID keys generated on first boot
 - `chrono-node` for natural-language date parsing (server-side)
