@@ -23,9 +23,9 @@ const state = {
   csrfToken: null,
   subscription: null,
   editScope: 'series',
-  sortField: localStorage.getItem('remember.sortField') || 'due',
-  sortDir: localStorage.getItem('remember.sortDir') || 'asc',
-  lastListId: Number(localStorage.getItem('remember.lastList')) || null,
+  sortField: localStorage.getItem('todo.sortField') || 'due',
+  sortDir: localStorage.getItem('todo.sortDir') || 'asc',
+  lastListId: Number(localStorage.getItem('todo.lastList')) || null,
 };
 
 const ZONES = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'America/Toronto', 'America/Sao_Paulo', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow', 'Africa/Cairo', 'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Ho_Chi_Minh', 'Asia/Tokyo', 'Asia/Seoul', 'Australia/Sydney', 'Pacific/Auckland'];
@@ -70,7 +70,7 @@ function announce(message) {
   setTimeout(() => { node.textContent = message; }, 30);
 }
 
-const DENSITY_KEY = 'remember-density';
+const DENSITY_KEY = 'todo-density';
 
 function applyDensity() {
   const density = localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable';
@@ -262,9 +262,9 @@ function defaultListId() {
   return state.lists[0] ? state.lists[0].id : null;
 }
 
-function rememberList(id) {
+function setLastList(id) {
   state.lastListId = id;
-  localStorage.setItem('remember.lastList', String(id));
+  localStorage.setItem('todo.lastList', String(id));
 }
 
 /* ---------------- Auth ---------------- */
@@ -404,7 +404,7 @@ function parseRoute() {
   return 'today';
 }
 
-const SHOW_COMPLETED_KEY = 'remember.showCompleted';
+const SHOW_COMPLETED_KEY = 'todo.showCompleted';
 
 function showCompletedPrefs() {
   try {
@@ -1807,7 +1807,7 @@ async function saveEditor(event) {
     } else {
       await api('/api/reminders', { method: 'POST', body });
     }
-    rememberList(listId);
+    setLastList(listId);
     closeSheet('#editor');
     await loadState();
     render();
@@ -2544,7 +2544,7 @@ async function exportBackup() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `remember-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    link.download = `todo-backup-${new Date().toISOString().slice(0, 10)}.json`;
     document.body.append(link);
     link.click();
     link.remove();
@@ -2730,12 +2730,12 @@ $('#e-notes').addEventListener('input', () => {
 });
 $('#sort-field').addEventListener('change', (event) => {
   state.sortField = event.target.value;
-  localStorage.setItem('remember.sortField', state.sortField);
+  localStorage.setItem('todo.sortField', state.sortField);
   render();
 });
 $('#sort-dir').addEventListener('change', (event) => {
   state.sortDir = event.target.value;
-  localStorage.setItem('remember.sortDir', state.sortDir);
+  localStorage.setItem('todo.sortDir', state.sortDir);
   render();
 });
 $('#list-form').addEventListener('submit', saveList);

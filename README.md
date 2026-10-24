@@ -2,6 +2,11 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v2.0.0
+
+- **Fully renamed to ToDo** — the old "remember" name is gone from the internals too: the npm package, the SQLite file (`data/todo.db`), session cookie (`todo.sid`), browser storage keys (`todo.*`), the service-worker cache (`todo-v2.0.0`), the exported backup filename (`todo-backup-*.json`), and notification tags. Old `remember`/`done` backup files still import. An existing `data/remember.db` is renamed to `todo.db` automatically on first boot, so no data is lost.
+- Note: renaming the cookie and storage keys signs you out once and resets per-device UI preferences (sort, density, last list, completed toggle).
+
 ## What's New in v1.11.1
 
 - **Aligned completed toggle + centred row check** — the per-list “Show/Hide N Completed” link now sits flush-left with the to-do cards and the Completed heading, with equal spacing above and below. On a title-only to-do (no note, link, or date), the complete circle is vertically centred in the row; rows with extra lines keep the circle on the title line. Service worker cache bumped to `remember-v1.11.1`.
@@ -132,7 +137,7 @@ Optional environment variables:
 | `DATA_DIR` | `./data` | SQLite directory |
 | `CONTACT_EMAIL` | `your@email.com` | VAPID contact email; set your own |
 
-Your data lives in `data/remember.db`. It is gitignored because it contains the password hash, VAPID private key, and all reminders.
+Your data lives in `data/todo.db`. It is gitignored because it contains the password hash, VAPID private key, and all reminders.
 
 ## Project layout
 
@@ -155,7 +160,7 @@ data/                     Local SQLite files (gitignored)
 
 Public: `GET /api/health`, `GET /api/session`, `POST /api/setup`, `POST /api/login`.
 
-Authenticated routes require the `remember.sid` session cookie. State-changing requests also require the `X-CSRF-Token` header returned by `GET /api/session`.
+Authenticated routes require the `todo.sid` session cookie. State-changing requests also require the `X-CSRF-Token` header returned by `GET /api/session`.
 
 - `GET /api/state` (lists, reminders, non-secret settings)
 - `GET /api/settings`, `POST /api/settings` (allowlisted keys only)
@@ -198,14 +203,14 @@ npm start
 
 - Proxy to `127.0.0.1:3006` and pass `X-Forwarded-Proto`.
 - Set `trust proxy` (already enabled in `server.js`) so secure cookies work behind the proxy.
-- Back up `data/remember.db` regularly.
+- Back up `data/todo.db` regularly.
 - Never commit `data/` or replace the database with a fresh copy during an update.
 
 Sessions are stored in SQLite, so refreshing the page or restarting the process keeps you signed in. The session secret and VAPID keys persist in the `settings` table.
 
 ## Version
 
-1.11.1
+2.0.0
 
 ## License
 

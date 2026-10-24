@@ -1,6 +1,6 @@
 'use strict';
 
-const CACHE = 'remember-v1.11.1';
+const CACHE = 'todo-v2.0.0';
 const ASSETS = [
   '/',
   '/index.html',
@@ -83,7 +83,7 @@ self.addEventListener('push', (event) => {
     }
   }
 
-  const tag = data.tag || 'remember';
+  const tag = data.tag || 'todo';
   const options = {
     body: data.body || 'You have a to-do due.',
     icon: '/icons/icon-192.png',

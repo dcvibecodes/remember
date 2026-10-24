@@ -8,7 +8,17 @@ const { AsyncLocalStorage } = require('node:async_hooks');
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
 fs.mkdirSync(DATA_DIR, { recursive: true });
 
-const db = new sqlite3.Database(path.join(DATA_DIR, 'remember.db'));
+// The app was previously called "remember". Rename its database files in place
+// once, so an existing install keeps all data instead of starting empty.
+const DB_FILE = path.join(DATA_DIR, 'todo.db');
+const LEGACY_DB_FILE = path.join(DATA_DIR, 'remember.db');
+if (!fs.existsSync(DB_FILE) && fs.existsSync(LEGACY_DB_FILE)) {
+  for (const suffix of ['', '-wal', '-shm']) {
+    if (fs.existsSync(LEGACY_DB_FILE + suffix)) fs.renameSync(LEGACY_DB_FILE + suffix, DB_FILE + suffix);
+  }
+}
+
+const db = new sqlite3.Database(DB_FILE);
 db.configure('busyTimeout', 5000);
 
 function runRaw(sql, params = []) {

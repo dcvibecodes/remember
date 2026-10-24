@@ -565,7 +565,7 @@ async function main() {
   await getStoreEpoch();
 
   app.use(session({
-    name: 'remember.sid',
+    name: 'todo.sid',
     secret,
     store: new SQLiteSessionStore(),
     resave: false,
@@ -935,7 +935,7 @@ async function main() {
       'SELECT reminder_id, occurrence_at, status, title, notes, completed_at, created_at FROM reminder_occurrences ORDER BY id'
     );
     res.json({
-      app: 'done',
+      app: 'todo',
       format: 1,
       exported_at: new Date().toISOString(),
       settings: {
@@ -959,7 +959,7 @@ async function main() {
   app.post('/api/import', async (req, res) => {
     if (req.token) return denyToken(res);
     const data = req.body.data;
-    if (!data || typeof data !== 'object' || data.app !== 'remember' && data.app !== 'done') {
+    if (!data || typeof data !== 'object' || !['todo', 'remember', 'done'].includes(data.app)) {
       return res.status(400).json({ error: 'That is not a ToDo backup file' });
     }
     const counts = { listsAdded: 0, listsSkipped: 0, remindersAdded: 0, remindersSkipped: 0, occurrencesAdded: 0, occurrencesSkipped: 0 };
@@ -1331,7 +1331,7 @@ async function main() {
 
   app.post('/api/logout', (req, res) => {
     req.session.destroy(() => {
-      res.clearCookie('remember.sid');
+      res.clearCookie('todo.sid');
       res.json({ ok: true });
     });
   });
@@ -2232,7 +2232,7 @@ async function main() {
       title: 'ToDo',
       body: 'Notifications are working.',
       url: '/#/today',
-      tag: 'remember-test',
+      tag: 'todo-test',
     });
     res.json(result);
   });
