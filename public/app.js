@@ -178,10 +178,6 @@ function toast(message) {
   toastTimer = setTimeout(() => { node.hidden = true; }, 3200);
 }
 
-function isMobile() {
-  return window.matchMedia('(max-width: 899px)').matches;
-}
-
 function pad(n) {
   return String(n).padStart(2, '0');
 }
@@ -569,7 +565,6 @@ function handleMenuButton() {
 }
 
 let listDrag = null;
-let suppressListClickUntil = 0;
 let dragTouchGuard = false;
 
 function cleanupListDrag() {
@@ -660,80 +655,17 @@ function startListDrag(event, list, row, grip) {
   drag.onCancel = () => cleanupListDrag();
 
   try { grip.setPointerCapture(event.pointerId); } catch { /* best effort */ }
-  // Listen on window: touch pointers are implicitly captured by the row that
-  // received pointerdown, so grip-only listeners miss long-press drags.
+  // Listen on window so the drag keeps tracking if the pointer leaves the grip.
   window.addEventListener('pointermove', drag.onMove);
   window.addEventListener('pointerup', drag.onUp);
   window.addEventListener('pointercancel', drag.onCancel);
 }
 
-// Mobile long-press on a list row starts reordering (the grip also works).
-// A short horizontal/vertical move cancels it so normal scrolling is safe.
-let listLongPress = null;
-
-function cancelListLongPress() {
-  if (!listLongPress) return;
-  clearTimeout(listLongPress.timer);
-  window.removeEventListener('pointermove', listLongPress.onMove);
-  window.removeEventListener('pointerup', listLongPress.onUp);
-  window.removeEventListener('pointercancel', listLongPress.onUp);
-  listLongPress = null;
-}
-
-// While a long-press drag is active, stop the browser from turning the
-// vertical movement into page scroll.
+// While a grip drag is active, stop the browser from turning the vertical
+// movement into page scroll.
 $('#lists').addEventListener('touchmove', (event) => {
   if (dragTouchGuard) event.preventDefault();
 }, { passive: false });
-
-$('#lists').addEventListener('pointerdown', (event) => {
-  if (!isMobile() || event.pointerType !== 'touch') return;
-  const row = event.target.closest('.list-row');
-  if (!row || event.target.closest('.list-grip')) return;
-  const list = state.lists.find((item) => item.id === Number(row.dataset.listId));
-  if (!list) return;
-  cancelListLongPress();
-  const press = {
-    row,
-    list,
-    pointerId: event.pointerId,
-    startX: event.clientX,
-    startY: event.clientY,
-    timer: null,
-    onMove: null,
-    onUp: null,
-  };
-  press.onMove = (moveEvent) => {
-    if (moveEvent.pointerId !== press.pointerId) return;
-    if (Math.abs(moveEvent.clientX - press.startX) > 10
-      || Math.abs(moveEvent.clientY - press.startY) > 10) {
-      cancelListLongPress();
-    }
-  };
-  press.onUp = (upEvent) => {
-    if (upEvent.pointerId === press.pointerId) cancelListLongPress();
-  };
-  press.timer = setTimeout(() => {
-    const grip = row.querySelector('.list-grip');
-    if (!grip || !document.contains(row)) {
-      cancelListLongPress();
-      return;
-    }
-    suppressListClickUntil = Date.now() + 900;
-    const init = {
-      pointerId: press.pointerId,
-      clientY: press.startY,
-      button: 0,
-      preventDefault() {},
-    };
-    cancelListLongPress();
-    startListDrag(init, list, row, grip);
-  }, 450);
-  listLongPress = press;
-  window.addEventListener('pointermove', press.onMove);
-  window.addEventListener('pointerup', press.onUp);
-  window.addEventListener('pointercancel', press.onUp);
-});
 
 function persistListOrder(ids) {
   api('/api/lists/order', { method: 'PUT', body: { ids } }).catch(async (err) => {
@@ -813,10 +745,7 @@ function renderSidebar() {
       class: 'list-row' + (state.view === list.id ? ' active' : ''),
       style: { '--c': colorVar(list.color) },
       'data-list-id': list.id,
-      onclick: () => {
-        if (Date.now() < suppressListClickUntil) return;
-        go('list/' + list.id);
-      },
+      onclick: () => go('list/' + list.id),
     }, [
       el('span', { class: 'list-dot' }),
       el('span', { class: 'list-name', text: list.name }),
