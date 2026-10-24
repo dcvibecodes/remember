@@ -2,6 +2,10 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v2.2.1
+
+- **Save in Settings now responds to theme and density** — these are per-device preferences, so Save used to stay disabled when only they changed, and Cancel was the only enabled button. Changing either now enables Save, which commits the choice and closes the sheet; Cancel, the backdrop, and Escape restore the appearance from when Settings opened. Theme buttons also trigger the same check now. Service worker cache bumped to `todo-v2.2.1`.
+
 ## What's New in v2.2.0
 
 - **Quick-add clock times are correct in every time zone** — chrono resolved the parsed date lazily against the server's timezone after `/api/parse` restored it, so "at 5pm" landed hours late (and could roll into the next day). The instant is now captured while the device zone is pinned.
@@ -222,7 +226,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-2.2.0
+2.2.1
 
 ## License
 

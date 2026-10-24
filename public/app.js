@@ -2357,7 +2357,11 @@ function closeSheet(selector) {
 
 function closeTopSheet() {
   const open = $$('.sheet').filter((sheet) => !sheet.hidden);
-  if (open.length) open[open.length - 1].hidden = true;
+  if (open.length) {
+    const sheet = open[open.length - 1];
+    if (sheet.id === 'settings-sheet') revertSettingsAppearance();
+    sheet.hidden = true;
+  }
   syncSheetState();
   return open.length > 0;
 }
@@ -2581,6 +2585,31 @@ function renderDeviceZoneRow() {
 const SETTINGS_DEFAULT_KEYS = ['default_time_model', 'default_time_zone', 'default_time'];
 const SETTINGS_NOTIFY_KEYS = ['repush_enabled', 'repush_cadence_min', 'repush_max', 'quiet_start', 'quiet_end'];
 let settingsSnapshot = null;
+let appearanceSnapshot = null;
+
+function appearanceValues() {
+  return {
+    theme: themePreference,
+    density: localStorage.getItem(DENSITY_KEY) === 'compact' ? 'compact' : 'comfortable',
+  };
+}
+
+function appearanceIsDirty() {
+  if (!appearanceSnapshot) return false;
+  const current = appearanceValues();
+  return current.theme !== appearanceSnapshot.theme || current.density !== appearanceSnapshot.density;
+}
+
+function revertSettingsAppearance() {
+  if (!appearanceSnapshot) return;
+  const current = appearanceValues();
+  if (current.theme !== appearanceSnapshot.theme) applyTheme(appearanceSnapshot.theme);
+  if (current.density !== appearanceSnapshot.density) {
+    localStorage.setItem(DENSITY_KEY, appearanceSnapshot.density);
+    applyDensity();
+  }
+  appearanceSnapshot = null;
+}
 
 function settingsValues() {
   return {
@@ -2598,7 +2627,8 @@ function settingsValues() {
 function updateSettingsDirty() {
   if (!settingsSnapshot) return;
   const current = settingsValues();
-  const dirty = Object.keys(current).some((key) => current[key] !== settingsSnapshot[key]);
+  const dirty = appearanceIsDirty()
+    || Object.keys(current).some((key) => current[key] !== settingsSnapshot[key]);
   $('#settings-save').disabled = !dirty;
   if (dirty) $('#settings-msg').hidden = true;
 }
@@ -2628,6 +2658,7 @@ async function openSettings() {
   $('#token-once').hidden = true;
   $('#token-name').value = '';
   await renderTokenList();
+  appearanceSnapshot = appearanceValues();
   settingsSnapshot = settingsValues();
   updateSettingsDirty();
   openSheet('#settings-sheet');
@@ -2646,26 +2677,34 @@ async function saveAppSettings() {
   const changed = (keys) => keys.some((key) => current[key] !== previous[key]);
   const defaultsChanged = changed(SETTINGS_DEFAULT_KEYS);
   const notifyChanged = changed(SETTINGS_NOTIFY_KEYS);
-  if (!defaultsChanged && !notifyChanged) return;
-  try {
-    const result = await api('/api/settings', {
-      method: 'POST',
-      body: { settings: current },
-    });
-    state.settings = result.settings || state.settings;
-    settingsSnapshot = current;
-    $('#settings-save').disabled = true;
-    let message = 'Saved. Applies to new to-dos only — existing to-dos were not changed.';
-    if (defaultsChanged && notifyChanged) {
-      message = 'Saved. New-to-do defaults apply to new to-dos only; notification changes apply to all to-dos from now on.';
-    } else if (notifyChanged) {
-      message = 'Saved — applies to how all to-dos notify from now on.';
+  const appearanceDirty = appearanceIsDirty();
+  if (!defaultsChanged && !notifyChanged && !appearanceDirty) return;
+  if (defaultsChanged || notifyChanged) {
+    try {
+      const result = await api('/api/settings', {
+        method: 'POST',
+        body: { settings: current },
+      });
+      state.settings = result.settings || state.settings;
+      settingsSnapshot = current;
+      let message = 'Saved. Applies to new to-dos only — existing to-dos were not changed.';
+      if (defaultsChanged && notifyChanged) {
+        message = 'Saved. New-to-do defaults apply to new to-dos only; notification changes apply to all to-dos from now on.';
+      } else if (notifyChanged) {
+        message = 'Saved — applies to how all to-dos notify from now on.';
+      }
+      $('#settings-msg').hidden = true;
+      toast(message);
+    } catch (err) {
+      settingsMessage(err.message);
+      return;
     }
-    $('#settings-msg').hidden = true;
-    toast(message);
-  } catch (err) {
-    settingsMessage(err.message);
+  } else {
+    toast('Saved — appearance applies to this device.');
   }
+  appearanceSnapshot = null;
+  $('#settings-save').disabled = true;
+  closeSheet('#settings-sheet');
 }
 
 async function renderTokenList() {
@@ -2856,7 +2895,10 @@ $('#notifications-btn').addEventListener('click', openNotifySheet);
 $('#settings-btn').addEventListener('click', openSettings);
 $('#password-form').addEventListener('submit', changePassword);
 $$('.theme-option-btn').forEach((btn) => {
-  btn.addEventListener('click', () => applyTheme(btn.dataset.themePref));
+  btn.addEventListener('click', () => {
+    applyTheme(btn.dataset.themePref);
+    updateSettingsDirty();
+  });
 });
 $('#notify-enable').addEventListener('click', enableNotifications);
 $('#notify-disable').addEventListener('click', disableNotifications);
@@ -3050,6 +3092,7 @@ document.addEventListener('click', (event) => {
   if (closer) {
     const sheet = closer.closest('.sheet');
     if (sheet) {
+      if (sheet.id === 'settings-sheet') revertSettingsAppearance();
       sheet.hidden = true;
       syncSheetState();
     }
