@@ -2,6 +2,14 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v2.2.0
+
+- **Quick-add clock times are correct in every time zone** — chrono resolved the parsed date lazily against the server's timezone after `/api/parse` restored it, so "at 5pm" landed hours late (and could roll into the next day). The instant is now captured while the device zone is pinned.
+- **Search covers all history** — search is global, not scoped to the open list, and runs on the server so completed to-dos older than 30 days are included. Results are grouped Open then Completed, and each row shows its list.
+- **Device-zone changes ask first** — opening the app in a new zone previews how many future floating to-dos would move, then asks before committing (per-zone dismissal) and offers Undo for 10 seconds. The stored zone is described honestly as the last zone a device confirmed. Service worker cache bumped to `todo-v2.2.0`.
+- **Settings has Cancel + Save** — Save lives in the header and stays disabled until a server-backed field changes; theme and density still apply instantly. The confirmation now names what actually changed instead of always claiming "new to-dos only".
+- **Clearer row actions and validation** — Snooze (1 hour / Next occurrence) and Reschedule (Today / Tomorrow) are separate labelled groups, a no-op Today is hidden, and empty titles/list names show an inline error. The More Options row is renamed "Time model".
+
 ## What's New in v2.1.0
 
 - **List reordering is grip-only** — you can only drag a list to reorder it by its drag handle (the grip), or with the arrow keys while the grip is focused. Long-pressing a list row no longer starts a reorder, so tapping a row always opens that list. Service worker cache bumped to `todo-v2.1.0`.
@@ -214,7 +222,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-2.1.0
+2.2.0
 
 ## License
 

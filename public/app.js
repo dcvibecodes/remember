@@ -16,6 +16,15 @@ const state = {
   settings: {},
   view: 'today',
   search: '',
+  searchOpen: [],
+  searchCompleted: [],
+  searchTotals: { open: 0, completed: 0 },
+  searchTruncated: false,
+  searchLoading: false,
+  searchOffline: false,
+  searchSeq: 0,
+  searchQuery: '',
+  searchKeepNavigation: false,
   showCompleted: false,
   editingId: null,
   editingListId: null,
@@ -30,12 +39,35 @@ const state = {
 
 const ZONES = ['UTC', 'America/New_York', 'America/Chicago', 'America/Denver', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'America/Toronto', 'America/Sao_Paulo', 'Europe/London', 'Europe/Paris', 'Europe/Berlin', 'Europe/Moscow', 'Africa/Cairo', 'Asia/Dubai', 'Asia/Karachi', 'Asia/Kolkata', 'Asia/Bangkok', 'Asia/Singapore', 'Asia/Ho_Chi_Minh', 'Asia/Tokyo', 'Asia/Seoul', 'Australia/Sydney', 'Pacific/Auckland'];
 
+// Browsers disagree about which spelling of an IANA zone to report
+// (Asia/Calcutta vs Asia/Kolkata, for example). Both are the same zone, so
+// collapse aliases before building any picker or syncing a device zone.
+const ZONE_ALIASES = {
+  'Asia/Calcutta': 'Asia/Kolkata',
+  'Asia/Saigon': 'Asia/Ho_Chi_Minh',
+  'Asia/Rangoon': 'Asia/Yangon',
+  'Europe/Kiev': 'Europe/Kyiv',
+  'America/Buenos_Aires': 'America/Argentina/Buenos_Aires',
+};
+
+function canonicalZone(zone) {
+  return ZONE_ALIASES[zone] || zone;
+}
+
 function deviceZone() {
   try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    return canonicalZone(Intl.DateTimeFormat().resolvedOptions().timeZone || '');
   } catch {
     return '';
   }
+}
+
+function availableZones() {
+  const zones = new Set();
+  for (const zone of [deviceZone(), ...ZONES]) {
+    if (zone) zones.add(canonicalZone(zone));
+  }
+  return [...zones];
 }
 
 // Client mirror of the server's rule labels (server/recurrence.js stays canonical).
@@ -92,27 +124,111 @@ function updateBadge() {
   }
 }
 
-// The device zone is synced to the server on open/resume so floating
-// reminders ("6pm wherever I am") fire in the last zone the server saw.
-// The PWA cannot detect travel while closed — the UI always says so.
+// The device zone is reported to the server on open/resume so floating
+// reminders ("6pm wherever I am") fire in the last confirmed zone. Because a
+// second device in another zone would otherwise silently move everything, a
+// change that would move to-dos asks first and offers Undo.
+const ZONE_PROMPT_KEY = 'todo.zone-prompt-dismissed';
+let pendingZone = null;
+
 async function syncDeviceZone() {
   if (!state.authenticated) return;
   const zone = deviceZone();
-  if (!zone || zone === (state.settings.device_zone || '')) return;
+  const stored = canonicalZone(state.settings.device_zone || '');
+  if (!zone || zone === stored) return;
+  if (localStorage.getItem(ZONE_PROMPT_KEY) === zone) return;
   try {
-    const result = await api('/api/settings', {
-      method: 'POST',
-      body: {
-        settings: { device_zone: zone, device_zone_updated_at: new Date().toISOString() },
-      },
-    });
-    state.settings = result.settings || state.settings;
-    if (result.floatingMoved) {
-      toast(`Time zone is now ${zone}; moved ${result.floatingMoved} floating to-do${result.floatingMoved === 1 ? '' : 's'}`);
-    }
-    render();
+    await requestDeviceZone(zone);
   } catch {
     // Offline or failed: the old zone stands until the next open.
+  }
+}
+
+async function requestDeviceZone(zone, options = {}) {
+  const preview = await api('/api/settings/zone-preview', {
+    method: 'POST',
+    body: { zone },
+  });
+  if (!preview.from || !preview.count) {
+    const result = await applyDeviceZone(zone, preview.from);
+    if (options.notify && !result?.floatingMoved) toast(`Time zone is now ${zone}`);
+    return;
+  }
+  openZonePrompt(preview);
+}
+
+async function applyDeviceZone(zone, fromZone) {
+  const result = await api('/api/settings', {
+    method: 'POST',
+    body: { settings: { device_zone: zone } },
+  });
+  state.settings = result.settings || state.settings;
+  render();
+  renderDeviceZoneRow();
+  if (result.floatingMoved) {
+    const count = result.floatingMoved;
+    toast(
+      `Time zone is now ${zone}; moved ${count} floating to-do${count === 1 ? '' : 's'}`,
+      'Undo',
+      () => undoDeviceZone(fromZone, result.moved || [])
+    );
+  }
+  return result;
+}
+
+async function undoDeviceZone(fromZone, moved) {
+  try {
+    const result = await api('/api/settings/zone-undo', {
+      method: 'POST',
+      body: { device_zone: fromZone, restore: moved },
+    });
+    state.settings = result.settings || state.settings;
+    await loadState();
+    render();
+    renderDeviceZoneRow();
+    // The user just chose the old zone; don't ask again until the device
+    // actually moves to a different zone.
+    const zone = deviceZone();
+    if (zone) localStorage.setItem(ZONE_PROMPT_KEY, zone);
+    toast('Time zone change undone');
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+function openZonePrompt(preview) {
+  pendingZone = preview;
+  const count = preview.count;
+  $('#zone-prompt-text').textContent =
+    `This device is now in ${preview.to}. Move ${count} floating to-do${count === 1 ? '' : 's'} from ${preview.from} so they keep the same clock time?`;
+  $('#zone-move').textContent = `Move ${count} to-do${count === 1 ? '' : 's'}`;
+  openSheet('#zone-sheet');
+}
+
+function keepDeviceZone() {
+  if (pendingZone) localStorage.setItem(ZONE_PROMPT_KEY, pendingZone.to);
+  pendingZone = null;
+}
+
+async function moveDeviceZone() {
+  const preview = pendingZone;
+  pendingZone = null;
+  closeSheet('#zone-sheet');
+  if (!preview) return;
+  try {
+    await applyDeviceZone(preview.to, preview.from);
+  } catch (err) {
+    toast(err.message);
+  }
+}
+
+async function useThisDeviceZone() {
+  const zone = deviceZone();
+  if (!zone || zone === canonicalZone(state.settings.device_zone || '')) return;
+  try {
+    await requestDeviceZone(zone, { notify: true });
+  } catch (err) {
+    toast(err.message);
   }
 }
 
@@ -170,12 +286,34 @@ async function api(path, options = {}) {
 }
 
 let toastTimer = null;
-function toast(message) {
+function toast(message, actionLabel, action) {
   const node = $('#toast');
-  node.textContent = message;
+  node.replaceChildren(el('span', { text: message }));
+  if (actionLabel && action) {
+    const button = el('button', { type: 'button', class: 'toast-action', text: actionLabel });
+    button.addEventListener('click', () => {
+      node.hidden = true;
+      clearTimeout(toastTimer);
+      action();
+    });
+    node.append(button);
+  }
   node.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { node.hidden = true; }, 3200);
+  toastTimer = setTimeout(() => { node.hidden = true; }, action ? 10000 : 3200);
+}
+
+function showFieldError(input, messageNode, message) {
+  messageNode.textContent = message;
+  messageNode.hidden = false;
+  input.setAttribute('aria-invalid', 'true');
+  input.focus();
+}
+
+function clearFieldError(input, messageNode) {
+  messageNode.hidden = true;
+  messageNode.textContent = '';
+  input.removeAttribute('aria-invalid');
 }
 
 function pad(n) {
@@ -325,6 +463,7 @@ async function submitAuth(event) {
     await loadState();
     showApp();
     syncPushState();
+    syncDeviceZone();
   } catch (err) {
     authError(err.message);
   }
@@ -359,6 +498,8 @@ async function loadState() {
   if (state.lastListId && !listById(state.lastListId)) {
     state.lastListId = state.lists[0] ? state.lists[0].id : null;
   }
+  // Mutations reload state; keep an active search in sync with them.
+  if (state.search) await runSearch(state.search);
 }
 
 async function refreshState() {
@@ -386,6 +527,15 @@ async function refreshState() {
 
 function go(view) {
   location.hash = '#/' + view;
+}
+
+function clearSearch() {
+  if (!state.search) return;
+  state.search = '';
+  $('#search').value = '';
+  $('#main-search').value = '';
+  clearSearchResults();
+  render();
 }
 
 function parseRoute() {
@@ -425,6 +575,17 @@ function setShowCompleted(listId, value) {
 
 function route() {
   const view = parseRoute();
+  // Search is global now, so navigating to a list or smart view leaves the
+  // results behind unless the search itself caused the jump to All.
+  if (state.search && view !== state.view) {
+    if (state.searchKeepNavigation) state.searchKeepNavigation = false;
+    else {
+      state.search = '';
+      $('#search').value = '';
+      $('#main-search').value = '';
+      clearSearchResults();
+    }
+  }
   if (view !== state.view) {
     state.showCompleted = typeof view === 'number' ? getShowCompleted(view) : false;
   }
@@ -517,13 +678,21 @@ function viewItems() {
     items = [];
   }
 
-  return sortItems(items.filter(matchesSearch));
+  return sortItems(items);
 }
 
 function completedInList(listId) {
   return sortItems(state.reminders
-    .filter((reminder) => reminder.list_id === listId && reminder.completed)
-    .filter(matchesSearch));
+    .filter((reminder) => reminder.list_id === listId && reminder.completed));
+}
+
+// A search result can be older than the 30-day completed window that
+// /api/state loads, so editor lookups must also check the search groups.
+function findReminder(id) {
+  return state.reminders.find((reminder) => reminder.id === id)
+    || state.searchOpen.find((reminder) => reminder.id === id)
+    || state.searchCompleted.find((reminder) => reminder.id === id)
+    || null;
 }
 
 function render() {
@@ -745,7 +914,10 @@ function renderSidebar() {
       class: 'list-row' + (state.view === list.id ? ' active' : ''),
       style: { '--c': colorVar(list.color) },
       'data-list-id': list.id,
-      onclick: () => go('list/' + list.id),
+      onclick: () => {
+        clearSearch();
+        go('list/' + list.id);
+      },
     }, [
       el('span', { class: 'list-dot' }),
       el('span', { class: 'list-name', text: list.name }),
@@ -790,6 +962,63 @@ function renderSidebar() {
   $('#notifications-label').textContent = state.subscription ? 'Notifications On' : 'Notifications';
 }
 
+function renderSearchResults(content) {
+  document.title = 'ToDo — Search';
+  $('#view-title').textContent = 'Search';
+  const totals = state.searchTotals || { open: 0, completed: 0 };
+  const total = totals.open + totals.completed;
+  $('#view-count').textContent = total ? String(total) : '';
+  $('#view-menu').hidden = true;
+
+  const open = sortItems(state.searchOpen || []);
+  const completed = [...(state.searchCompleted || [])].sort((a, b) => {
+    const av = new Date(a.completed_at || 0).getTime();
+    const bv = new Date(b.completed_at || 0).getTime();
+    return bv - av;
+  });
+
+  if (state.searchLoading && state.searchQuery !== state.search) {
+    content.append(el('p', { class: 'search-status', text: 'Searching…' }));
+    return;
+  }
+  if (!open.length && !completed.length) {
+    content.append(emptySearchState());
+    return;
+  }
+  if (state.searchOffline) {
+    content.append(el('p', { class: 'search-status', text: 'Offline — showing recent to-dos only.' }));
+  }
+  if (state.searchTruncated) {
+    content.append(el('p', { class: 'search-status', text: 'Showing the first results — refine the search to see the rest.' }));
+  }
+  if (open.length) {
+    content.append(el('h3', { class: 'group-title', text: `Open (${totals.open})` }));
+    const group = el('div', { class: 'reminder-group' });
+    for (const reminder of open) group.append(reminderRow(reminder, { showList: true }));
+    content.append(group);
+  }
+  if (completed.length) {
+    content.append(el('h3', { class: 'group-title', text: `Completed (${totals.completed})` }));
+    const group = el('div', { class: 'reminder-group' });
+    for (const reminder of completed) group.append(reminderRow(reminder, { showList: true }));
+    content.append(group);
+  }
+}
+
+function emptySearchState() {
+  return el('div', { class: 'empty' }, [
+    el('span', { html: ICON('search') }),
+    el('h3', { class: 'empty-heading', text: 'No matches' }),
+    el('p', { text: `No to-dos match “${state.search}” in any list.` }),
+    el('button', {
+      type: 'button',
+      class: 'primary-btn',
+      text: 'Clear search',
+      onclick: () => setSearch('', 'both'),
+    }),
+  ]);
+}
+
 function renderMain() {
   const view = state.view;
   const content = $('#content');
@@ -800,6 +1029,11 @@ function renderMain() {
   if (view !== 'home') {
     $('#sort-field').value = state.sortField;
     $('#sort-dir').value = state.sortDir;
+  }
+
+  if (state.search) {
+    renderSearchResults(content);
+    return;
   }
 
   if (view === 'home') {
@@ -1110,7 +1344,7 @@ async function rescheduleRow(reminder, date) {
     });
     await loadState();
     render();
-    toast(date === 'today' ? 'Snoozed until today' : 'Snoozed until tomorrow');
+    toast(date === 'today' ? 'Due today' : 'Due tomorrow');
   } catch (err) {
     toast(err.message);
   }
@@ -1123,7 +1357,7 @@ function reminderRow(reminder, options = {}) {
   const viewIsList = typeof state.view === 'number';
 
   const meta = el('div', { class: 'reminder-meta' });
-  if (!viewIsList && list) {
+  if ((options.showList || !viewIsList) && list) {
     meta.append(el('span', { class: 'meta-list', style: { '--c': color } }, [
       el('span', { class: 'meta-dot' }),
       el('span', { text: list.name }),
@@ -1189,14 +1423,17 @@ function reminderRow(reminder, options = {}) {
   }
 
   // Contextual actions live on the row so due items never require opening
-  // the editor. A recurring item due today can skip straight to its next
-  // occurrence — the "snooze until next recurrence" behaviour.
-  const actions = [];
+  // the editor. Snoozing only silences the alert; rescheduling moves the due
+  // date. They are separate groups so the labels say which is which.
+  const snoozeActions = [];
+  const rescheduleActions = [];
   const recurring = rule.type !== 'none';
   const overdue = isOverdue(reminder);
   const dueToday = Boolean(due) && new Date(reminder.due_at) <= endOfToday();
+  const dueOnToday = Boolean(reminder.due_at)
+    && localDateValue(new Date(reminder.due_at)) === localDateValue(new Date());
   if (!reminder.completed && reminder.due_at && !isSnoozed(reminder) && dueToday) {
-    actions.push(el('button', {
+    snoozeActions.push(el('button', {
       type: 'button',
       class: 'mini-btn',
       text: '1 hour',
@@ -1204,7 +1441,7 @@ function reminderRow(reminder, options = {}) {
       onclick: (event) => { event.stopPropagation(); snoozeRow(reminder, 1); },
     }));
     if (recurring) {
-      actions.push(el('button', {
+      snoozeActions.push(el('button', {
         type: 'button',
         class: 'mini-btn',
         text: 'Next occurrence',
@@ -1214,27 +1451,30 @@ function reminderRow(reminder, options = {}) {
       }));
     }
   }
-  if (!reminder.completed && options.reschedule && overdue) {
-    actions.push(el('button', {
+  // "Today" would be a no-op on an item already due today (overdue only by
+  // time), so only offer it when the calendar date is actually earlier.
+  if (!reminder.completed && options.reschedule && overdue && !dueOnToday) {
+    rescheduleActions.push(el('button', {
       type: 'button',
       class: 'mini-btn',
       text: 'Today',
-      'aria-label': `Snooze ${reminder.title} until today`,
+      'aria-label': `Reschedule ${reminder.title} to today`,
       onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'today'); },
     }));
   }
   if (!reminder.completed && reminder.due_at && dueToday && (!recurring || (options.reschedule && overdue))) {
-    actions.push(el('button', {
+    rescheduleActions.push(el('button', {
       type: 'button',
       class: 'mini-btn',
       text: 'Tomorrow',
-      'aria-label': `Snooze ${reminder.title} until tomorrow`,
+      'aria-label': `Reschedule ${reminder.title} to tomorrow`,
       onclick: (event) => { event.stopPropagation(); rescheduleRow(reminder, 'tomorrow'); },
     }));
   }
-  if (actions.length) {
-    body.append(el('div', { class: 'row-actions', 'aria-label': 'Snooze until' }, [
-      el('span', { class: 'row-actions-label', text: 'Snooze until' }),
+  for (const [label, actions] of [['Snooze', snoozeActions], ['Reschedule', rescheduleActions]]) {
+    if (!actions.length) continue;
+    body.append(el('div', { class: 'row-actions', 'aria-label': label }, [
+      el('span', { class: 'row-actions-label', text: label }),
       ...actions,
     ]));
   }
@@ -1431,7 +1671,7 @@ function syncRepeatRows() {
 
 function syncRecordRows() {
   const reminder = state.editingId
-    ? state.reminders.find((item) => item.id === state.editingId)
+    ? findReminder(state.editingId)
     : null;
   const added = reminder ? formatRecordDate(reminder.created_at) : '';
   $('#e-added-row').hidden = !added;
@@ -1448,22 +1688,27 @@ function renderSettingsZones(selected) {
   if (!select) return;
   select.replaceChildren();
   select.append(el('option', { value: '', text: 'Device time zone' }));
-  const zones = [...new Set([deviceZone(), ...ZONES].filter(Boolean))];
+  const zones = availableZones();
   for (const zone of zones) select.append(el('option', { value: zone, text: zone.replace(/_/g, ' ') }));
-  if (selected && !zones.includes(selected)) {
-    select.append(el('option', { value: selected, text: selected.replace(/_/g, ' ') }));
+  const current = selected ? canonicalZone(selected) : '';
+  if (current && !zones.includes(current)) {
+    select.append(el('option', { value: current, text: current.replace(/_/g, ' ') }));
   }
-  select.value = selected || '';
+  select.value = current;
 }
 
 function buildZoneOptions(selected) {
   const select = $('#e-zone');
   select.replaceChildren();
-  const zones = [...new Set([deviceZone(), ...ZONES].filter(Boolean))];
+  const zones = availableZones();
   for (const zone of zones) {
     select.append(el('option', { value: zone, text: zone.replace(/_/g, ' ') }));
   }
-  select.value = zones.includes(selected) ? selected : (zones[0] || 'UTC');
+  const current = selected ? canonicalZone(selected) : '';
+  if (current && !zones.includes(current)) {
+    select.append(el('option', { value: current, text: current.replace(/_/g, ' ') }));
+  }
+  select.value = current || zones[0] || 'UTC';
   updateZoneVisual();
 }
 
@@ -1483,8 +1728,8 @@ function syncModelRows() {
     const synced = (state.settings && state.settings.device_zone) || '';
     hint.hidden = false;
     hint.textContent = synced
-      ? `Follows this device; last synced in ${synced}. Travel without opening the app cannot move it.`
-      : 'Follows this device once it reports its time zone.';
+      ? `Follows the last confirmed device zone (${synced}). Travel without opening the app cannot move it.`
+      : 'Follows the last confirmed device zone once a device reports it.';
   } else if (model === 'anchored') {
     hint.hidden = false;
     hint.textContent = `Always fires at that clock time in ${$('#e-zone').value || 'the chosen zone'}.`;
@@ -1518,7 +1763,7 @@ function onRepeatChange(manual = true) {
 
 function syncSnoozeRow() {
   const reminder = state.editingId
-    ? state.reminders.find((item) => item.id === state.editingId)
+    ? findReminder(state.editingId)
     : null;
   const row = $('#snooze-row');
   if (!reminder || !reminder.due_at) {
@@ -1536,7 +1781,7 @@ function syncSnoozeRow() {
 }
 
 async function toggleEditorSnooze() {
-  const reminder = state.reminders.find((item) => item.id === state.editingId);
+  const reminder = findReminder(state.editingId);
   if (!reminder) return;
   try {
     if (isSnoozed(reminder)) {
@@ -1596,7 +1841,7 @@ async function loadHistory(id) {
 }
 
 function openEditor(id) {
-  const reminder = id ? state.reminders.find((item) => item.id === id) : null;
+  const reminder = id ? findReminder(id) : null;
   if (!state.lists.length) {
     toast('Create a list first');
     openListSheet(null);
@@ -1611,6 +1856,7 @@ function openEditor(id) {
   state.editingId = reminder ? reminder.id : null;
   $('#editor-heading').textContent = reminder ? 'Edit To-Do' : 'New To-Do';
   $('#e-title').value = reminder ? reminder.title : '';
+  clearFieldError($('#e-title'), $('#e-title-error'));
   $('#e-notes').value = reminder ? reminder.notes : '';
 
   const select = $('#e-list');
@@ -1666,8 +1912,13 @@ function openEditor(id) {
 
 async function saveEditor(event) {
   event.preventDefault();
-  const title = $('#e-title').value.trim();
-  if (!title) return toast('Title is required');
+  const titleInput = $('#e-title');
+  const title = titleInput.value.trim();
+  if (!title) {
+    showFieldError(titleInput, $('#e-title-error'), 'Title is required');
+    return;
+  }
+  clearFieldError(titleInput, $('#e-title-error'));
 
   const listId = Number($('#e-list').value);
   const dateOn = $('#e-date-on').checked;
@@ -1705,7 +1956,7 @@ async function saveEditor(event) {
 
   const model = $('#e-model').value;
   const current = state.editingId
-    ? state.reminders.find((item) => item.id === state.editingId)
+    ? findReminder(state.editingId)
     : null;
   const editingSeries = current && parseRuleClient(current.repeat_rule).type !== 'none';
   const scope = editingSeries ? state.editScope : 'series';
@@ -1875,6 +2126,7 @@ function openListSheet(list) {
   state.selectedColor = list ? list.color : nextListColor();
   $('#list-heading').textContent = list ? (system ? 'Unlisted' : 'Edit List') : 'New List';
   $('#l-name').value = list ? list.name : '';
+  clearFieldError($('#l-name'), $('#l-name-error'));
   $('#l-name').disabled = system;
   $('#l-delete').hidden = !list || system;
   renderSwatches();
@@ -1916,8 +2168,13 @@ async function saveList(event) {
     }
     return;
   }
-  const name = $('#l-name').value.trim();
-  if (!name) return toast('List name is required');
+  const nameInput = $('#l-name');
+  const name = nameInput.value.trim();
+  if (!name) {
+    showFieldError(nameInput, $('#l-name-error'), 'List name is required');
+    return;
+  }
+  clearFieldError(nameInput, $('#l-name-error'));
 
   const body = { name, color: state.selectedColor };
   try {
@@ -2253,7 +2510,7 @@ async function endSwipe(commit) {
   if (!current || !current.active) return;
   lastSwipeEnd = Date.now();
   releaseSwipePointer(current);
-  const reminder = state.reminders.find((item) => item.id === current.id);
+  const reminder = findReminder(current.id);
   if (!reminder || commit === 0) {
     resetSwipe(current.row);
     return;
@@ -2309,6 +2566,43 @@ function applyTheme(pref, persist = true) {
   });
 }
 
+function renderDeviceZoneRow() {
+  const s = state.settings;
+  const serverZone = s.device_zone || '';
+  $('#device-zone-label').textContent = serverZone
+    ? `Floating to-dos follow ${serverZone} — the last zone a device confirmed${s.device_zone_updated_at ? ` (${new Date(s.device_zone_updated_at).toLocaleString()})` : ''}.`
+    : 'No device has confirmed its time zone yet — open the app once online.';
+  const device = deviceZone();
+  const useDevice = $('#zone-use-device');
+  useDevice.hidden = !device || device === canonicalZone(serverZone);
+  if (!useDevice.hidden) useDevice.textContent = `Use this device's time zone (${device})`;
+}
+
+const SETTINGS_DEFAULT_KEYS = ['default_time_model', 'default_time_zone', 'default_time'];
+const SETTINGS_NOTIFY_KEYS = ['repush_enabled', 'repush_cadence_min', 'repush_max', 'quiet_start', 'quiet_end'];
+let settingsSnapshot = null;
+
+function settingsValues() {
+  return {
+    default_time_model: $('#set-default-model').value,
+    default_time_zone: $('#set-default-zone').value,
+    default_time: $('#set-default-time').value,
+    repush_enabled: $('#set-repush').checked ? '1' : '0',
+    repush_cadence_min: $('#set-repush-cadence').value,
+    repush_max: $('#set-repush-max').value,
+    quiet_start: $('#set-quiet-start').value,
+    quiet_end: $('#set-quiet-end').value,
+  };
+}
+
+function updateSettingsDirty() {
+  if (!settingsSnapshot) return;
+  const current = settingsValues();
+  const dirty = Object.keys(current).some((key) => current[key] !== settingsSnapshot[key]);
+  $('#settings-save').disabled = !dirty;
+  if (dirty) $('#settings-msg').hidden = true;
+}
+
 async function openSettings() {
   closeAccountMenu();
   applyTheme(themePreference, false);
@@ -2330,12 +2624,12 @@ async function openSettings() {
   $('#set-repush-max').value = s.repush_max || '3';
   $('#set-quiet-start').value = s.quiet_start || '23:00';
   $('#set-quiet-end').value = s.quiet_end || '07:00';
-  $('#device-zone-label').textContent = s.device_zone
-    ? `This device reports ${s.device_zone}${s.device_zone_updated_at ? ` (last synced ${new Date(s.device_zone_updated_at).toLocaleString()})` : ''}. Floating to-dos follow it.`
-    : 'This device has not reported its time zone yet — open the app once online.';
+  renderDeviceZoneRow();
   $('#token-once').hidden = true;
   $('#token-name').value = '';
   await renderTokenList();
+  settingsSnapshot = settingsValues();
+  updateSettingsDirty();
   openSheet('#settings-sheet');
 }
 
@@ -2347,27 +2641,28 @@ function settingsMessage(message, ok = false) {
 }
 
 async function saveAppSettings() {
-  const density = $('#set-density').value === 'compact' ? 'compact' : 'comfortable';
-  localStorage.setItem(DENSITY_KEY, density);
-  applyDensity();
+  const current = settingsValues();
+  const previous = settingsSnapshot || {};
+  const changed = (keys) => keys.some((key) => current[key] !== previous[key]);
+  const defaultsChanged = changed(SETTINGS_DEFAULT_KEYS);
+  const notifyChanged = changed(SETTINGS_NOTIFY_KEYS);
+  if (!defaultsChanged && !notifyChanged) return;
   try {
     const result = await api('/api/settings', {
       method: 'POST',
-      body: {
-        settings: {
-          default_time_model: $('#set-default-model').value,
-          default_time_zone: $('#set-default-zone').value,
-          default_time: $('#set-default-time').value,
-          repush_enabled: $('#set-repush').checked ? '1' : '0',
-          repush_cadence_min: $('#set-repush-cadence').value,
-          repush_max: $('#set-repush-max').value,
-          quiet_start: $('#set-quiet-start').value,
-          quiet_end: $('#set-quiet-end').value,
-        },
-      },
+      body: { settings: current },
     });
     state.settings = result.settings || state.settings;
-    settingsMessage('Saved. Applies to new to-dos only — existing to-dos were not changed.', true);
+    settingsSnapshot = current;
+    $('#settings-save').disabled = true;
+    let message = 'Saved. Applies to new to-dos only — existing to-dos were not changed.';
+    if (defaultsChanged && notifyChanged) {
+      message = 'Saved. New-to-do defaults apply to new to-dos only; notification changes apply to all to-dos from now on.';
+    } else if (notifyChanged) {
+      message = 'Saved — applies to how all to-dos notify from now on.';
+    }
+    $('#settings-msg').hidden = true;
+    toast(message);
   } catch (err) {
     settingsMessage(err.message);
   }
@@ -2546,12 +2841,16 @@ $('#auth-form').addEventListener('submit', submitAuth);
 $('#smart-nav').addEventListener('click', (event) => {
   const row = event.target.closest('.nav-row');
   if (!row) return;
+  clearSearch();
   go(row.dataset.view);
   closeAccountMenu();
 });
 
 $('#new-list-2').addEventListener('click', () => openListSheet(null));
-$('#back-btn').addEventListener('click', () => go('home'));
+$('#back-btn').addEventListener('click', () => {
+  clearSearch();
+  go('home');
+});
 $('#logout-btn').addEventListener('click', logout);
 $('#notifications-btn').addEventListener('click', openNotifySheet);
 $('#settings-btn').addEventListener('click', openSettings);
@@ -2563,6 +2862,16 @@ $('#notify-enable').addEventListener('click', enableNotifications);
 $('#notify-disable').addEventListener('click', disableNotifications);
 $('#notify-test').addEventListener('click', sendTestNotification);
 $('#settings-save').addEventListener('click', saveAppSettings);
+$('#settings-sheet').addEventListener('input', updateSettingsDirty);
+$('#settings-sheet').addEventListener('change', updateSettingsDirty);
+$('#set-density').addEventListener('change', () => {
+  const density = $('#set-density').value === 'compact' ? 'compact' : 'comfortable';
+  localStorage.setItem(DENSITY_KEY, density);
+  applyDensity();
+});
+$('#zone-use-device').addEventListener('click', useThisDeviceZone);
+$('#zone-keep').addEventListener('click', keepDeviceZone);
+$('#zone-move').addEventListener('click', moveDeviceZone);
 $('#token-generate').addEventListener('click', generateToken);
 $('#token-copy').addEventListener('click', async () => {
   try {
@@ -2593,11 +2902,75 @@ document.addEventListener('click', (event) => {
 });
 $$('.refresh-btn').forEach((btn) => btn.addEventListener('click', refreshState));
 
+let searchTimer = null;
+
+function clearSearchResults() {
+  state.searchSeq += 1;
+  state.searchOpen = [];
+  state.searchCompleted = [];
+  state.searchTotals = { open: 0, completed: 0 };
+  state.searchTruncated = false;
+  state.searchLoading = false;
+  state.searchOffline = false;
+  state.searchQuery = '';
+}
+
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  if (!state.search) {
+    clearSearchResults();
+    return;
+  }
+  state.searchLoading = true;
+  searchTimer = setTimeout(async () => {
+    const ok = await runSearch(state.search);
+    if (ok) render();
+  }, 220);
+}
+
+// Open to-dos are all in /api/state, but completed history is not (30-day
+// cutoff), so the server searches the database. On a network failure fall
+// back to the loaded reminders and say the history is incomplete.
+async function runSearch(query) {
+  const seq = ++state.searchSeq;
+  try {
+    const data = await api(`/api/search?q=${encodeURIComponent(query)}&limit=500`);
+    if (seq !== state.searchSeq || query !== state.search) return false;
+    state.searchQuery = query;
+    state.searchOpen = data.open || [];
+    state.searchCompleted = data.completed || [];
+    state.searchTotals = data.totals || {
+      open: state.searchOpen.length,
+      completed: state.searchCompleted.length,
+    };
+    state.searchTruncated = Boolean(data.truncated);
+    state.searchOffline = false;
+  } catch {
+    if (seq !== state.searchSeq || query !== state.search) return false;
+    state.searchQuery = query;
+    const local = state.reminders.filter(matchesSearch);
+    state.searchOpen = sortItems(local.filter((reminder) => !reminder.completed));
+    state.searchCompleted = local
+      .filter((reminder) => reminder.completed)
+      .sort((a, b) => new Date(b.completed_at || 0) - new Date(a.completed_at || 0));
+    state.searchTotals = {
+      open: state.searchOpen.length,
+      completed: state.searchCompleted.length,
+    };
+    state.searchTruncated = false;
+    state.searchOffline = true;
+  }
+  if (seq === state.searchSeq) state.searchLoading = false;
+  return true;
+}
+
 function setSearch(value, source) {
   state.search = value.trim();
   if (source !== 'sidebar') $('#search').value = value;
   if (source !== 'main') $('#main-search').value = value;
+  scheduleSearch();
   if (state.search && state.view === 'home') {
+    state.searchKeepNavigation = true;
     go('all');
     return;
   }
@@ -2651,6 +3024,7 @@ $('#e-time').addEventListener('change', () => {
 $('#e-list').addEventListener('change', updateEditorListVisual);
 $('#e-title').addEventListener('input', () => {
   autoGrowTitle();
+  clearFieldError($('#e-title'), $('#e-title-error'));
   scheduleParse();
 });
 $('#e-notes').addEventListener('input', () => {
@@ -2668,6 +3042,7 @@ $('#sort-dir').addEventListener('change', (event) => {
   render();
 });
 $('#list-form').addEventListener('submit', saveList);
+$('#l-name').addEventListener('input', () => clearFieldError($('#l-name'), $('#l-name-error')));
 $('#l-delete').addEventListener('click', deleteList);
 
 document.addEventListener('click', (event) => {

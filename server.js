@@ -814,6 +814,63 @@ async function main() {
     res.json(await getSettings());
   });
 
+  // Future floating reminders move with the device zone. Past-due items stay
+  // overdue, and fixed/anchored items are never touched.
+  async function futureFloating() {
+    const rows = await db.all(
+      "SELECT id, due_at, time_zone, revision FROM reminders WHERE time_model = 'floating' AND completed = 0 AND due_at IS NOT NULL"
+    );
+    const nowMs = Date.now();
+    return rows.filter((reminder) => new Date(reminder.due_at).getTime() > nowMs);
+  }
+
+  // Lets the PWA ask "what would this zone change do?" before committing it,
+  // so a second device in another zone cannot silently move floating to-dos.
+  app.post('/api/settings/zone-preview', async (req, res) => {
+    if (req.token) return denyToken(res);
+    const zone = typeof req.body.zone === 'string' ? req.body.zone : '';
+    if (!recurrence.isValidTimeZone(zone)) {
+      return res.status(400).json({ error: 'Unknown timezone' });
+    }
+    const settings = await getSettings();
+    const floating = await futureFloating();
+    res.json({ from: settings.device_zone || '', to: zone, count: floating.length });
+  });
+
+  // Undo a just-confirmed zone move. Rows are restored only if nobody edited
+  // them since (revision match), and only while they are still floating.
+  app.post('/api/settings/zone-undo', async (req, res) => {
+    if (req.token) return denyToken(res);
+    const zone = typeof req.body.device_zone === 'string' ? req.body.device_zone : '';
+    if (zone !== '' && !recurrence.isValidTimeZone(zone)) {
+      return res.status(400).json({ error: 'Unknown timezone' });
+    }
+    const restore = Array.isArray(req.body.restore) ? req.body.restore : [];
+    if (restore.length > 500) return res.status(400).json({ error: 'Too many to-dos to restore' });
+    let restored = 0;
+    for (const item of restore) {
+      if (!item || typeof item !== 'object') continue;
+      const id = parseId(item.id);
+      const revision = Number(item.revision);
+      const dueAt = typeof item.due_at === 'string' && !Number.isNaN(new Date(item.due_at).getTime())
+        ? new Date(item.due_at).toISOString()
+        : null;
+      if (!id || !Number.isInteger(revision) || dueAt === null) continue;
+      const timeZone = typeof item.time_zone === 'string' && recurrence.isValidTimeZone(item.time_zone)
+        ? item.time_zone
+        : null;
+      const result = await db.run(
+        `UPDATE reminders SET due_at = ?, time_zone = ?, updated_at = ?, revision = revision + 1
+         WHERE id = ? AND revision = ? AND time_model = 'floating'`,
+        [dueAt, timeZone, new Date().toISOString(), id, revision]
+      );
+      if (result.changes) restored += 1;
+    }
+    await db.setSetting('device_zone', zone);
+    await db.setSetting('device_zone_updated_at', new Date().toISOString());
+    res.json({ ok: true, settings: await getSettings(), restored });
+  });
+
   app.post('/api/settings', async (req, res) => {
     if (req.token) return denyToken(res);
     const incoming = req.body.settings;
@@ -836,22 +893,31 @@ async function main() {
     // occurrences move; past-due items stay overdue. (The PWA cannot detect
     // travel while closed, so this runs on app open/resume instead.)
     let moved = 0;
+    const movedItems = [];
     if (updates.device_zone && updates.device_zone !== before.device_zone) {
       const fromZone = before.device_zone && recurrence.isValidTimeZone(before.device_zone)
         ? before.device_zone
         : null;
       const toZone = updates.device_zone;
-      const floating = await db.all(
-        "SELECT id, due_at, time_zone FROM reminders WHERE time_model = 'floating' AND completed = 0 AND due_at IS NOT NULL"
-      );
-      const nowMs = Date.now();
+      const floating = await futureFloating();
       for (const reminder of floating) {
         const oldZone = recurrence.isValidTimeZone(reminder.time_zone) ? reminder.time_zone : fromZone;
-        if (!oldZone || new Date(reminder.due_at).getTime() <= nowMs) continue;
+        if (!oldZone) continue;
         try {
           const movedDue = recurrence.recomputeInZone(reminder.due_at, oldZone, toZone);
-          await db.run('UPDATE reminders SET due_at = ?, time_zone = ?, updated_at = ?, revision = revision + 1 WHERE id = ?',
-            [movedDue, toZone, new Date().toISOString(), reminder.id]);
+          const result = await db.run(
+            'UPDATE reminders SET due_at = ?, time_zone = ?, updated_at = ?, revision = revision + 1 WHERE id = ?',
+            [movedDue, toZone, new Date().toISOString(), reminder.id]
+          );
+          if (!result.changes) continue;
+          movedItems.push({
+            id: reminder.id,
+            due_at: reminder.due_at,
+            time_zone: reminder.time_zone,
+            // The UPDATE above increments revision; undo matches that value so
+            // a later edit is never overwritten.
+            revision: reminder.revision + 1,
+          });
           moved += 1;
         } catch {
           // Leave the reminder on its stored instant if the zone math fails.
@@ -859,7 +925,7 @@ async function main() {
       }
       await db.setSetting('device_zone_updated_at', new Date().toISOString());
     }
-    res.json({ ok: true, settings: await getSettings(), floatingMoved: moved });
+    res.json({ ok: true, settings: await getSettings(), floatingMoved: moved, moved: movedItems });
   });
 
   app.get('/api/tokens', async (req, res) => {
@@ -1275,11 +1341,22 @@ async function main() {
     // chrono reads the process timezone, so pin it to the device zone for the
     // synchronous parse call only, then restore it. No await in between, so
     // concurrent requests cannot observe the switch.
+    // chrono resolves the parsed components lazily: start.date() computes the
+    // instant using the timezone that is active when it is called. Materialise
+    // it inside the pinned block, otherwise restoring TZ first makes "at 5pm"
+    // resolve in the server zone (UTC) and land hours late.
     const previousTZ = process.env.TZ;
     let results = [];
+    let parsedStart = null;
     try {
       if (zone) process.env.TZ = zone;
       results = chrono.parse(chronoText, new Date(), { forwardDate: true });
+      if (results.length) {
+        parsedStart = {
+          ms: results[0].start.date().getTime(),
+          hasTime: results[0].start.isCertain('hour'),
+        };
+      }
     } finally {
       if (previousTZ === undefined) delete process.env.TZ;
       else process.env.TZ = previousTZ;
@@ -1307,11 +1384,9 @@ async function main() {
         summary: '',
       });
     }
-    const start = results[0].start;
-    const ms = start.date().getTime();
-    const wall = recurrence.instantToWall(ms, zone);
+    const wall = recurrence.instantToWall(parsedStart.ms, zone);
     const date = `${wall.y}-${String(wall.mo).padStart(2, '0')}-${String(wall.d).padStart(2, '0')}`;
-    const hasTime = start.isCertain('hour');
+    const hasTime = parsedStart.hasTime;
     const time = hasTime
       ? `${String(wall.h).padStart(2, '0')}:${String(wall.mi).padStart(2, '0')}`
       : null;
@@ -1340,6 +1415,31 @@ async function main() {
     completed_at, urgent, repeat_rule, time_model, time_zone, snoozed_until,
     notified_at, last_push_at, push_count, sort_order, created_at, updated_at, revision`;
 
+  // Merge pending occurrence-only edits: an 'exception' row for the current
+  // scheduled occurrence overrides the series values for display.
+  async function applyOccurrenceOverrides(reminders) {
+    if (!reminders.length) return reminders;
+    const ids = reminders.filter((r) => r.due_at && r.repeat_rule !== 'none').map((r) => r.id);
+    if (!ids.length) return reminders;
+    const placeholders = ids.map(() => '?').join(',');
+    const exceptions = await db.all(
+      `SELECT reminder_id, occurrence_at, title, notes, list_id, urgent
+       FROM reminder_occurrences WHERE status = 'exception' AND reminder_id IN (${placeholders})`,
+      ids
+    );
+    const byKey = new Map(exceptions.map((e) => [`${e.reminder_id}|${e.occurrence_at}`, e]));
+    for (const reminder of reminders) {
+      const exception = byKey.get(`${reminder.id}|${reminder.due_at}`);
+      if (!exception) continue;
+      if (exception.title !== null && exception.title !== undefined) reminder.title = exception.title;
+      if (exception.notes !== null && exception.notes !== undefined) reminder.notes = exception.notes;
+      if (exception.list_id) reminder.list_id = exception.list_id;
+      if (exception.urgent !== null && exception.urgent !== undefined) reminder.urgent = exception.urgent;
+      reminder.occurrence_edited = true;
+    }
+    return reminders;
+  }
+
   app.get('/api/state', async (req, res) => {
     const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
     const lists = await db.all(`
@@ -1352,30 +1452,55 @@ async function main() {
       WHERE completed = 0 OR completed_at IS NULL OR completed_at >= ?
       ORDER BY sort_order, id
     `, [cutoff]);
-    // Merge pending occurrence-only edits: an 'exception' row for the current
-    // scheduled occurrence overrides the series values for display.
-    if (reminders.length) {
-      const ids = reminders.filter((r) => r.due_at && r.repeat_rule !== 'none').map((r) => r.id);
-      if (ids.length) {
-        const placeholders = ids.map(() => '?').join(',');
-        const exceptions = await db.all(
-          `SELECT reminder_id, occurrence_at, title, notes, list_id, urgent
-           FROM reminder_occurrences WHERE status = 'exception' AND reminder_id IN (${placeholders})`,
-          ids
-        );
-        const byKey = new Map(exceptions.map((e) => [`${e.reminder_id}|${e.occurrence_at}`, e]));
-        for (const reminder of reminders) {
-          const exception = byKey.get(`${reminder.id}|${reminder.due_at}`);
-          if (!exception) continue;
-          if (exception.title !== null && exception.title !== undefined) reminder.title = exception.title;
-          if (exception.notes !== null && exception.notes !== undefined) reminder.notes = exception.notes;
-          if (exception.list_id) reminder.list_id = exception.list_id;
-          if (exception.urgent !== null && exception.urgent !== undefined) reminder.urgent = exception.urgent;
-          reminder.occurrence_edited = true;
-        }
+    await applyOccurrenceOverrides(reminders);
+    res.json({ lists, reminders, settings: await getSettings(), now: new Date().toISOString(), store_epoch: await getStoreEpoch() });
+  });
+
+  // Full-history search for the UI: /api/state only carries 30 days of
+  // completed to-dos, so older matches have to come from the database.
+  // Open matches are returned first; each group is capped independently so a
+  // long completed history cannot crowd out active to-dos.
+  app.get('/api/search', async (req, res) => {
+    if (req.token) return denyToken(res);
+    const query = text(req.query.q, 200);
+    if (!query) return res.status(400).json({ error: 'Search text is required' });
+    let limit = 250;
+    if (req.query.limit !== undefined) {
+      limit = Number(req.query.limit);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return res.status(400).json({ error: 'limit must be 1 to 500' });
       }
     }
-    res.json({ lists, reminders, settings: await getSettings(), now: new Date().toISOString(), store_epoch: await getStoreEpoch() });
+    // Treat %, _ and \ as literal characters instead of LIKE wildcards.
+    const pattern = `%${query.replace(/[\\%_]/g, (char) => `\\${char}`)}%`;
+    const match = "(title LIKE ? ESCAPE '\\' OR notes LIKE ? ESCAPE '\\')";
+    const params = [pattern, pattern];
+    const [open, completed, openCount, completedCount, storeEpoch] = await Promise.all([
+      db.all(
+        `SELECT ${REMINDER_COLUMNS} FROM reminders
+         WHERE ${match} AND completed = 0
+         ORDER BY sort_order, id LIMIT ?`,
+        [...params, limit]
+      ),
+      db.all(
+        `SELECT ${REMINDER_COLUMNS} FROM reminders
+         WHERE ${match} AND completed = 1
+         ORDER BY completed_at DESC, id DESC LIMIT ?`,
+        [...params, limit]
+      ),
+      db.get(`SELECT COUNT(*) AS n FROM reminders WHERE ${match} AND completed = 0`, params),
+      db.get(`SELECT COUNT(*) AS n FROM reminders WHERE ${match} AND completed = 1`, params),
+      getStoreEpoch(),
+    ]);
+    await applyOccurrenceOverrides(open);
+    res.json({
+      query,
+      open,
+      completed,
+      totals: { open: openCount.n, completed: completedCount.n },
+      truncated: openCount.n > open.length || completedCount.n > completed.length,
+      store_epoch: storeEpoch,
+    });
   });
 
   // Agent + UI reads. Tokens may use these; full rows for UI convenience.

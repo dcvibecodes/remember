@@ -245,7 +245,7 @@
 
   <div id="editor" class="sheet" hidden>
     <div class="sheet-backdrop" data-close></div>
-    <form id="editor-form" class="sheet-card editor-card">
+    <form id="editor-form" class="sheet-card editor-card" novalidate>
       <header class="sheet-head editor-head">
         <button type="button" class="round-btn" data-close aria-label="Cancel">
           <svg class="ic"><use href="#i-x"/></svg>
@@ -258,6 +258,7 @@
       <div class="sheet-body editor-body">
         <div class="editor-fields">
           <textarea id="e-title" class="e-title" placeholder="Title or Describe To-Do" rows="1" maxlength="500" required autocomplete="off"></textarea>
+          <p id="e-title-error" class="form-msg field-error" hidden></p>
           <button type="button" id="e-parse-chip" class="parse-chip" hidden>
             <span id="e-parse-text"></span>
             <svg class="ic"><use href="#i-x"/></svg>
@@ -367,11 +368,11 @@
             </div>
             <div class="ed-row ed-select-row">
               <span class="ed-ic"><svg class="ic"><use href="#i-clock"/></svg></span>
-              <span class="ed-label">Time</span>
+              <span class="ed-label">Time model</span>
               <span class="ed-value" id="e-model-value">Fixed time</span>
               <select id="e-model" aria-label="Time model">
                 <option value="fixed">Fixed time</option>
-                <option value="floating">Floating (follows this device)</option>
+                <option value="floating">Floating (last confirmed device zone)</option>
                 <option value="anchored">Anchored to a time zone</option>
               </select>
             </div>
@@ -393,7 +394,7 @@
 
   <div id="list-sheet" class="sheet" hidden>
     <div class="sheet-backdrop" data-close></div>
-    <form id="list-form" class="sheet-card">
+    <form id="list-form" class="sheet-card" novalidate>
       <header class="sheet-head">
         <button type="button" class="text-btn" data-close>Cancel</button>
         <span id="list-heading">New List</span>
@@ -401,6 +402,7 @@
       </header>
       <div class="sheet-body">
         <input id="l-name" class="e-title" placeholder="List Name" maxlength="120" required autocomplete="off">
+        <p id="l-name-error" class="form-msg field-error" hidden></p>
         <div class="swatches" id="swatches"></div>
         <button type="button" id="l-delete" class="danger-btn" hidden>Delete List</button>
       </div>
@@ -425,15 +427,31 @@
     </div>
   </div>
 
-  <div id="settings-sheet" class="sheet" hidden>
+  <div id="zone-sheet" class="sheet" hidden>
     <div class="sheet-backdrop" data-close></div>
     <div class="sheet-card">
       <header class="sheet-head">
         <span></span>
-        <span>Settings</span>
-        <button type="button" class="text-btn strong" data-close>Done</button>
+        <span>Time zone changed</span>
+        <button type="button" class="text-btn" id="zone-keep" data-close>Keep old time</button>
       </header>
       <div class="sheet-body">
+        <p id="zone-prompt-text" class="notify-hint"></p>
+        <button type="button" id="zone-move" class="primary-btn">Move to-dos</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="settings-sheet" class="sheet" hidden>
+    <div class="sheet-backdrop" data-close></div>
+    <div class="sheet-card">
+      <header class="sheet-head">
+        <button type="button" class="text-btn" data-close>Cancel</button>
+        <span>Settings</span>
+        <button type="button" class="text-btn strong" id="settings-save" disabled>Save</button>
+      </header>
+      <div class="sheet-body">
+        <p id="settings-msg" class="form-msg" hidden></p>
         <div class="settings-group">
           <h3>Appearance</h3>
           <div class="theme-toggle-row" id="theme-toggle" role="group" aria-label="Theme">
@@ -448,13 +466,12 @@
               <option value="compact">Compact</option>
             </select>
           </label>
-          <button type="button" id="settings-save" class="primary-btn">Save settings</button>
-          <p id="settings-msg" class="form-msg" hidden></p>
+          <p class="notify-hint">Theme and density apply instantly on this device.</p>
         </div>
         <div class="settings-group">
           <h3>New to-dos</h3>
           <label class="settings-row" for="set-default-model">
-            <span>Default time</span>
+            <span>Default time model</span>
             <select id="set-default-model">
               <option value="fixed">Fixed time</option>
               <option value="floating">Floating</option>
@@ -471,8 +488,8 @@
             <span>Date-only time</span>
             <input id="set-default-time" type="time">
           </label>
-          <p class="settings-note"><strong>Applies to new to-dos only.</strong> Existing to-dos keep their current time model and zone. Floating to-dos still follow this device when its zone changes.</p>
-          <p class="notify-hint">Floating follows this device; Fixed keeps an absolute instant; Anchored pins a named zone.</p>
+          <p class="settings-note"><strong>Applies to new to-dos only.</strong> Existing to-dos keep their current time model and zone. Floating to-dos follow the last confirmed device zone.</p>
+          <p class="notify-hint">Floating follows the last confirmed device zone; Fixed keeps an absolute instant; Anchored pins a named zone.</p>
         </div>
         <div class="settings-group">
           <h3>Notifications</h3>
@@ -499,8 +516,9 @@
           <p class="notify-hint">Re-push is off by default. First notifications always fire, even in quiet hours; only repeats stay silent.</p>
         </div>
         <div class="settings-group">
-          <h3>This device</h3>
+          <h3>Time zone</h3>
           <p class="notify-hint" id="device-zone-label">Time zone: unknown yet.</p>
+          <button type="button" id="zone-use-device" class="secondary-btn" hidden>Use this device's time zone</button>
         </div>
         <div class="settings-group">
           <h3>Backup</h3>
