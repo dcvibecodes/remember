@@ -2,6 +2,10 @@
 
 A self-hosted, single-user task app in the spirit of Apple Reminders. Lists, due dates, urgent flags, recurring reminders, natural-language quick add, smart lists, floating time zones, a token API for external agents, completed history, dark mode, and web push. No frontend framework and no build step.
 
+## What's New in v1.11.1
+
+- **Aligned completed toggle + centred row check** — the per-list “Show/Hide N Completed” link now sits flush-left with the to-do cards and the Completed heading, with equal spacing above and below. On a title-only to-do (no note, link, or date), the complete circle is vertically centred in the row; rows with extra lines keep the circle on the title line. Service worker cache bumped to `remember-v1.11.1`.
+
 ## What's New in v1.11.0
 
 - **Record dates** — the editor’s More Options shows read-only “Added” and “Completed on” timestamps for existing to-dos, and completed rows display when they were completed. Service worker cache bumped to `remember-v1.11.0`.
@@ -201,7 +205,7 @@ Sessions are stored in SQLite, so refreshing the page or restarting the process 
 
 ## Version
 
-1.8.2
+1.11.1
 
 ## License
 
