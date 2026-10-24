@@ -1350,8 +1350,13 @@ function reminderRow(reminder, options = {}) {
   const content = el('div', { class: 'swipe-content' }, [check, body, remove]);
   const background = el('div', { class: 'swipe-bg', 'aria-hidden': 'true' }, [deleteAction]);
 
+  // A title-only row (no meta, notes, or links) has a body shorter than the
+  // row's min-height, so top-aligning the check would float it above centre.
+  // Flag it so the check can centre; any extra line keeps the check on the title.
+  const titleOnly = meta.childElementCount === 0 && !reminder.notes;
+
   return el('div', {
-    class: 'reminder' + (reminder.completed ? ' done' : ''),
+    class: 'reminder' + (reminder.completed ? ' done' : '') + (titleOnly ? ' reminder--single' : ''),
     style: { '--c': color },
     'data-reminder-id': reminder.id,
     onclick: (event) => {

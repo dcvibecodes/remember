@@ -759,6 +759,10 @@ body.list-dragging .list-grip { cursor: grabbing; }
 
 .swipe-content.swiping { transition: none; user-select: none; -webkit-user-select: none; }
 
+/* Title-only rows centre the check; rows with a note/link/meta keep it on the title line. */
+.reminder--single .swipe-content { align-items: center; }
+.reminder--single .check { margin-top: 0; }
+
 .reminder:hover .swipe-content { background: var(--elev); }
 
 .check {
@@ -974,10 +978,12 @@ body.list-dragging .list-grip { cursor: grabbing; }
   color: var(--text-2);
   text-align: left;
   font-size: 0.8125rem;
-  padding: 12px 14px;
+  padding: 12px 0;
 }
 
 .toggle-completed:hover { color: var(--text); }
+
+.toggle-completed + .group-title { margin-top: 14px; }
 
 .empty {
   display: flex;
